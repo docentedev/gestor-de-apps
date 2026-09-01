@@ -1,0 +1,356 @@
+:root {
+  --bg-dark: #1e2128;
+  --shadow-dark: #15171c;
+  --shadow-light: #272b34;
+
+  --border-light: rgba(255, 255, 255, 0.05);
+  --border-dark: rgba(0, 0, 0, 0.3);
+
+  --accent-orange: #ff5500;
+  --accent-gradient: linear-gradient(135deg, #ff6b00 0%, #e63900 100%);
+
+  --text-primary: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  --radius-card: 16px;
+  --radius-btn: 10px;
+  --radius-input: 10px;
+
+  --transition-fast: all 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-container {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.header-section h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+  width: 100%;
+}
+
+.col-4 {
+  grid-column: span 4;
+}
+.col-8 {
+  grid-column: span 8;
+}
+
+@media (max-width: 1024px) {
+  .col-4,
+  .col-8 {
+    grid-column: span 12;
+  }
+}
+
+.card,
+.project-card {
+  background: var(--bg-dark);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-light);
+  box-shadow:
+    5px 5px 10px var(--shadow-dark),
+    -4px -4px 10px var(--shadow-light);
+}
+
+.card-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.projects-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.project-card {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 768px) {
+  .project-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-path {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.project-details {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.project-details code {
+  color: #ff8c00;
+  font-weight: 600;
+}
+
+/* --- INPUTS & FORMULARIO --- */
+.form-input,
+.input-port,
+.input-url {
+  width: 100%;
+  min-width: 0; /* Previene el overflow en Flexbox */
+  background: #181a20;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-input);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  outline: none;
+  box-shadow:
+    inset 2px 2px 5px var(--shadow-dark),
+    inset -2px -2px 5px var(--shadow-light);
+  transition: var(--transition-fast);
+}
+
+.form-input::placeholder,
+.input-port::placeholder,
+.input-url::placeholder {
+  color: var(--text-dim);
+}
+
+.form-input:focus,
+.input-port:focus,
+.input-url:focus {
+  border-color: rgba(255, 85, 0, 0.5);
+  box-shadow:
+    inset 2px 2px 5px var(--shadow-dark),
+    inset -2px -2px 5px var(--shadow-light),
+    0 0 0 1px rgba(255, 85, 0, 0.4);
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.input-port {
+  flex: 0 0 85px;
+}
+.input-url {
+  flex: 1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* --- BOTONES --- */
+.btn {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-btn);
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-shadow:
+    3px 3px 7px var(--shadow-dark),
+    -3px -3px 7px var(--shadow-light);
+  transition: var(--transition-fast);
+}
+
+.btn:hover {
+  color: var(--text-primary);
+  box-shadow:
+    4px 4px 9px var(--shadow-dark),
+    -4px -4px 9px var(--shadow-light);
+}
+
+.btn:active,
+.btn-action:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 2px 2px 4px var(--shadow-dark),
+    inset -2px -2px 4px var(--shadow-light) !important;
+}
+
+.btn-save {
+  background: var(--accent-gradient);
+  border: none;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    0 4px 12px rgba(255, 85, 0, 0.35),
+    3px 3px 7px var(--shadow-dark);
+}
+
+.btn-save:hover {
+  color: #ffffff;
+  box-shadow:
+    0 4px 16px rgba(255, 85, 0, 0.5),
+    4px 4px 9px var(--shadow-dark);
+}
+
+.btn-cancel {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-action {
+  padding: 7px 11px;
+}
+
+.btn-run:hover {
+  color: #34d399;
+}
+.btn-kill:hover {
+  color: #f87171;
+}
+.btn-open:hover {
+  color: #38bdf8;
+}
+.btn-delete:hover {
+  color: #f87171;
+}
+
+/* --- TERMINAL --- */
+.console-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.console-section h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.terminal-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.terminal-tab {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-btn);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.terminal-tab:hover {
+  color: var(--text-primary);
+}
+
+.terminal-tab.active {
+  color: #ffffff;
+  background: var(--accent-gradient);
+  border-color: transparent;
+}
+
+.console-box {
+  background: #14161b;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  min-height: 300px;
+  max-height: 50vh;
+  overflow-y: auto;
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: #ff8c00;
+  box-shadow:
+    inset 3px 3px 8px var(--shadow-dark),
+    inset -3px -3px 8px var(--shadow-light);
+}
+
+.console-placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.console-box::-webkit-scrollbar {
+  width: 5px;
+}
+
+.console-box::-webkit-scrollbar-thumb {
+  background: #272b34;
+  border-radius: 4px;
+}
