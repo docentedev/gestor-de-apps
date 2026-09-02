@@ -47,32 +47,19 @@ body,
   gap: 24px;
 }
 
+.header-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .header-section h2 {
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 24px;
-  width: 100%;
-}
-
-.col-4 {
-  grid-column: span 4;
-}
-.col-8 {
-  grid-column: span 8;
-}
-
-@media (max-width: 1024px) {
-  .col-4,
-  .col-8 {
-    grid-column: span 12;
-  }
 }
 
 .card,
@@ -141,10 +128,6 @@ body,
   border: 1px dashed var(--border-dark);
   box-shadow: none;
   color: var(--text-muted);
-}
-
-.service-form-card {
-  border-style: dashed;
 }
 
 .btn-view-toggle {
@@ -363,6 +346,23 @@ body,
   box-shadow: none;
 }
 
+.btn-confirm-delete {
+  background: linear-gradient(135deg, #f87171 0%, #b91c1c 100%);
+  border: none;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    0 4px 12px rgba(248, 113, 113, 0.35),
+    3px 3px 7px var(--shadow-dark);
+}
+
+.btn-confirm-delete:hover {
+  color: #ffffff;
+  box-shadow:
+    0 4px 16px rgba(248, 113, 113, 0.5),
+    4px 4px 9px var(--shadow-dark);
+}
+
 .project-actions {
   display: flex;
   align-items: center;
@@ -516,19 +516,7 @@ body,
   color: var(--text-muted);
 }
 
-.task-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.task-form .form-input {
-  flex: 1;
-  min-width: 160px;
-}
-
-/* --- MODAL DE PARÁMETROS --- */
+/* --- MODAL --- */
 .modal-overlay {
   position: fixed;
   inset: 0;

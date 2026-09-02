@@ -35,17 +35,41 @@ interface ProcessOutput {
   line: string;
 }
 
-// Petición de parámetros pendiente: se muestra un modal para completar los
-// placeholders {{param}} de una tarea antes de ejecutarla.
-interface ParamRequest {
-  service: Service;
-  task: Task;
-  label: string;
-  params: string[];
-  values: Record<string, string>;
+interface ServiceFields {
+  name: string;
+  path: string;
+  url: string;
+  port: number;
+  command: string;
 }
 
-const emptyServiceForm = {
+interface TaskFields {
+  name: string;
+  command: string;
+}
+
+// Todos los formularios y confirmaciones de la app viven en un único modal
+// (uno a la vez), abierto siempre desde un botón. `kind` decide qué cuerpo
+// se renderiza; cada variante lleva solo los datos que necesita.
+type Modal =
+  | { kind: "createProject"; name: string; service: ServiceFields }
+  | { kind: "editProject"; proj: Project; name: string }
+  | { kind: "createService"; proj: Project; fields: ServiceFields }
+  | { kind: "editService"; proj: Project; service: Service; fields: ServiceFields }
+  | { kind: "createTask"; proj: Project; service: Service; fields: TaskFields }
+  | { kind: "confirmDeleteProject"; proj: Project }
+  | { kind: "confirmDeleteService"; proj: Project; service: Service }
+  | { kind: "confirmDeleteTask"; proj: Project; service: Service; task: Task }
+  | {
+      kind: "params";
+      service: Service;
+      task: Task;
+      label: string;
+      params: string[];
+      values: Record<string, string>;
+    };
+
+const emptyServiceForm: ServiceFields = {
   name: "",
   path: "",
   url: "http://localhost:3000",
@@ -53,7 +77,7 @@ const emptyServiceForm = {
   command: "pnpm run start:dev",
 };
 
-const emptyTaskForm = { name: "", command: "" };
+const emptyTaskForm: TaskFields = { name: "", command: "" };
 
 // Detecta placeholders {{param}} dentro de un comando de tarea.
 function extractParams(command: string): string[] {
@@ -101,35 +125,8 @@ export default function App() {
 
   const [loaded, setLoaded] = useState(false);
 
-  // Formulario lateral: nombre del proyecto + (solo al crear) los datos del
-  // primer servicio, para no obligar a un paso extra en el caso más común.
-  const [projectName, setProjectName] = useState("");
-  const [initialService, setInitialService] = useState(emptyServiceForm);
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
-
-  // Formulario inline para agregar/editar un servicio dentro de un proyecto.
-  const [serviceFormFor, setServiceFormFor] = useState<string | null>(null);
-  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
-  const [serviceForm, setServiceForm] = useState(emptyServiceForm);
-
-  // Formulario inline para agregar una tarea a un servicio puntual.
-  const [taskFormFor, setTaskFormFor] = useState<{ projId: string; serviceId: string } | null>(
-    null,
-  );
-  const [taskForm, setTaskForm] = useState(emptyTaskForm);
-
-  // Modal de parámetros pendiente de completar antes de ejecutar una tarea.
-  const [paramRequest, setParamRequest] = useState<ParamRequest | null>(null);
-
-  // Ids pendientes de confirmación de borrado. No usamos window.confirm
-  // porque WKWebView (macOS) no implementa los diálogos JS nativos: la
-  // llamada devuelve false al instante sin mostrar nada, y el borrado nunca
-  // llega a ejecutarse. Con este estado mostramos una confirmación propia.
-  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
-  const [confirmDeleteServiceId, setConfirmDeleteServiceId] = useState<string | null>(null);
-
-  const [logsByTab, setLogsByTab] = useState<Record<string, string[]>>({});
-  const [activeTab, setActiveTab] = useState<string>(GENERAL);
+  // Único modal activo (o null si no hay ninguno abierto).
+  const [modal, setModal] = useState<Modal | null>(null);
 
   // Proyectos con la vista completa desplegada (rutas, comandos, tareas,
   // edición). Por defecto todos arrancan en vista mínima para que la lista
@@ -144,6 +141,9 @@ export default function App() {
       return next;
     });
   };
+
+  const [logsByTab, setLogsByTab] = useState<Record<string, string[]>>({});
+  const [activeTab, setActiveTab] = useState<string>(GENERAL);
 
   const addLog = (tab: string, msg: string) => {
     setLogsByTab((prev) => ({
@@ -187,41 +187,42 @@ export default function App() {
 
   // --- Proyecto (contenedor) ---
 
-  const resetProjectForm = () => {
-    setProjectName("");
-    setInitialService(emptyServiceForm);
-    setEditingProjectId(null);
-  };
+  const openCreateProject = () =>
+    setModal({ kind: "createProject", name: "", service: emptyServiceForm });
 
-  const addProject = () => {
-    if (editingProjectId) {
-      if (!projectName) return;
-      setProjects((prev) =>
-        prev.map((p) => (p.id === editingProjectId ? { ...p, name: projectName } : p)),
-      );
-      addLog(GENERAL, ` ✏️ Proyecto renombrado a "${projectName}".`);
-    } else {
-      if (!projectName || !initialService.path) return;
+  const openEditProject = (proj: Project) =>
+    setModal({ kind: "editProject", proj, name: proj.name });
+
+  const submitProjectModal = () => {
+    if (!modal) return;
+    if (modal.kind === "createProject") {
+      const { name, service: fields } = modal;
+      if (!name || !fields.path) return;
       const projectId = Date.now().toString();
       const service: Service = {
-        ...initialService,
-        name: initialService.name || "Principal",
+        ...fields,
+        name: fields.name || "Principal",
         id: `${projectId}-svc`,
         tasks: [],
       };
-      setProjects((prev) => [...prev, { id: projectId, name: projectName, services: [service] }]);
-      addLog(GENERAL, ` ➕ Proyecto "${projectName}" agregado.`);
+      setProjects((prev) => [...prev, { id: projectId, name, services: [service] }]);
+      addLog(GENERAL, ` ➕ Proyecto "${name}" agregado.`);
+      setModal(null);
+    } else if (modal.kind === "editProject") {
+      const { name, proj } = modal;
+      if (!name) return;
+      setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, name } : p)));
+      addLog(GENERAL, ` ✏️ Proyecto renombrado a "${name}".`);
+      setModal(null);
     }
-    resetProjectForm();
   };
 
-  const startEditProject = (proj: Project) => {
-    setEditingProjectId(proj.id);
-    setProjectName(proj.name);
-  };
+  const askDeleteProject = (proj: Project) => setModal({ kind: "confirmDeleteProject", proj });
 
-  const deleteProject = async (proj: Project) => {
-    setConfirmDeleteProjectId(null);
+  const confirmDeleteProject = async () => {
+    if (!modal || modal.kind !== "confirmDeleteProject") return;
+    const { proj } = modal;
+    setModal(null);
 
     // Mata los procesos escuchando en los puertos de todos los servicios del
     // proyecto antes de quitarlo, para no dejar procesos huérfanos corriendo
@@ -236,7 +237,6 @@ export default function App() {
     }
 
     setProjects((prev) => prev.filter((p) => p.id !== proj.id));
-    if (editingProjectId === proj.id) resetProjectForm();
     setLogsByTab((prev) => {
       const rest = { ...prev };
       for (const service of proj.services) delete rest[service.id];
@@ -248,64 +248,66 @@ export default function App() {
 
   // --- Servicio (ruta/comando/puerto/URL + tareas) ---
 
-  const openServiceForm = (projId: string) => {
-    setServiceFormFor(projId);
-    setEditingServiceId(null);
-    setServiceForm(emptyServiceForm);
-    // El formulario vive dentro de la vista completa, así que la despliega
-    // si el proyecto estaba en vista mínima.
-    setExpandedProjectIds((prev) => new Set(prev).add(projId));
-  };
-
-  const closeServiceForm = () => {
-    setServiceFormFor(null);
-    setEditingServiceId(null);
-    setServiceForm(emptyServiceForm);
-  };
-
-  const startEditService = (proj: Project, service: Service) => {
-    setServiceFormFor(proj.id);
-    setEditingServiceId(service.id);
-    setServiceForm({
-      name: service.name,
-      path: service.path,
-      url: service.url,
-      port: service.port,
-      command: service.command,
-    });
+  const openCreateService = (proj: Project) => {
+    setModal({ kind: "createService", proj, fields: emptyServiceForm });
+    // El "+ Servicio" solo tiene sentido en la vista completa, así que se
+    // despliega el proyecto si estaba en vista mínima.
     setExpandedProjectIds((prev) => new Set(prev).add(proj.id));
   };
 
-  const saveService = (proj: Project) => {
-    if (!serviceForm.name || !serviceForm.path) return;
-    if (editingServiceId) {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === proj.id
-            ? {
-                ...p,
-                services: p.services.map((s) =>
-                  s.id === editingServiceId ? { ...s, ...serviceForm } : s,
-                ),
-              }
-            : p,
-        ),
-      );
-      addLog(GENERAL, ` ✏️ Servicio "${serviceForm.name}" actualizado en ${proj.name}.`);
-    } else {
-      const newService: Service = { ...serviceForm, id: Date.now().toString(), tasks: [] };
+  const openEditService = (proj: Project, service: Service) => {
+    setModal({
+      kind: "editService",
+      proj,
+      service,
+      fields: {
+        name: service.name,
+        path: service.path,
+        url: service.url,
+        port: service.port,
+        command: service.command,
+      },
+    });
+  };
+
+  const submitServiceModal = () => {
+    if (!modal) return;
+    if (modal.kind === "createService") {
+      const { proj, fields } = modal;
+      if (!fields.name || !fields.path) return;
+      const newService: Service = { ...fields, id: Date.now().toString(), tasks: [] };
       setProjects((prev) =>
         prev.map((p) =>
           p.id === proj.id ? { ...p, services: [...p.services, newService] } : p,
         ),
       );
       addLog(GENERAL, ` ➕ Servicio "${newService.name}" agregado a ${proj.name}.`);
+      setModal(null);
+    } else if (modal.kind === "editService") {
+      const { proj, service, fields } = modal;
+      if (!fields.name || !fields.path) return;
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === proj.id
+            ? {
+                ...p,
+                services: p.services.map((s) => (s.id === service.id ? { ...s, ...fields } : s)),
+              }
+            : p,
+        ),
+      );
+      addLog(GENERAL, ` ✏️ Servicio "${fields.name}" actualizado en ${proj.name}.`);
+      setModal(null);
     }
-    closeServiceForm();
   };
 
-  const deleteService = async (proj: Project, service: Service) => {
-    setConfirmDeleteServiceId(null);
+  const askDeleteService = (proj: Project, service: Service) =>
+    setModal({ kind: "confirmDeleteService", proj, service });
+
+  const confirmDeleteService = async () => {
+    if (!modal || modal.kind !== "confirmDeleteService") return;
+    const { proj, service } = modal;
+    setModal(null);
     try {
       const res = await invoke<string>("kill_port", { port: service.port });
       addLog(GENERAL, ` 🛑 Puerto ${service.port}: ${res}`);
@@ -375,23 +377,14 @@ export default function App() {
 
   // --- Tareas puntuales de un servicio ---
 
-  const openTaskForm = (projId: string, serviceId: string) => {
-    setTaskFormFor({ projId, serviceId });
-    setTaskForm(emptyTaskForm);
-  };
+  const openCreateTask = (proj: Project, service: Service) =>
+    setModal({ kind: "createTask", proj, service, fields: emptyTaskForm });
 
-  const closeTaskForm = () => {
-    setTaskFormFor(null);
-    setTaskForm(emptyTaskForm);
-  };
-
-  const saveTask = (proj: Project, service: Service) => {
-    if (!taskForm.name || !taskForm.command) return;
-    const newTask: Task = {
-      id: Date.now().toString(),
-      name: taskForm.name,
-      command: taskForm.command,
-    };
+  const submitTaskModal = () => {
+    if (!modal || modal.kind !== "createTask") return;
+    const { proj, service, fields } = modal;
+    if (!fields.name || !fields.command) return;
+    const newTask: Task = { id: Date.now().toString(), name: fields.name, command: fields.command };
     setProjects((prev) =>
       prev.map((p) =>
         p.id === proj.id
@@ -405,10 +398,16 @@ export default function App() {
       ),
     );
     addLog(GENERAL, ` ➕ Tarea "${newTask.name}" agregada a ${proj.name} · ${service.name}.`);
-    closeTaskForm();
+    setModal(null);
   };
 
-  const deleteTask = (proj: Project, service: Service, task: Task) => {
+  const askDeleteTask = (proj: Project, service: Service, task: Task) =>
+    setModal({ kind: "confirmDeleteTask", proj, service, task });
+
+  const confirmDeleteTask = () => {
+    if (!modal || modal.kind !== "confirmDeleteTask") return;
+    const { proj, service, task } = modal;
+    setModal(null);
     setProjects((prev) =>
       prev.map((p) =>
         p.id === proj.id
@@ -451,7 +450,8 @@ export default function App() {
     }
     // Comando con placeholders (ej: git commit -m "{{mensaje}}"): se pide
     // el valor de cada uno antes de ejecutar.
-    setParamRequest({
+    setModal({
+      kind: "params",
       service,
       task,
       label: `${proj.name} · ${service.name}`,
@@ -460,188 +460,429 @@ export default function App() {
     });
   };
 
-  const submitParamRequest = () => {
-    if (!paramRequest) return;
-    const command = buildCommand(paramRequest.task.command, paramRequest.values);
-    runTaskCommand(paramRequest.service, paramRequest.task, command);
-    setParamRequest(null);
+  const submitParamsModal = () => {
+    if (!modal || modal.kind !== "params") return;
+    const { service, task, values } = modal;
+    const command = buildCommand(task.command, values);
+    setModal(null);
+    runTaskCommand(service, task, command);
+  };
+
+  // Cuerpo del modal único: qué se muestra depende de `modal.kind`. Cada
+  // input actualiza su propia rama del estado con la forma funcional de
+  // setModal (vuelve a angostar el tipo dentro del updater), así no hace
+  // falta depender de que el narrowing de TS atraviese los closures.
+  const renderModalBody = () => {
+    if (!modal) return null;
+
+    switch (modal.kind) {
+      case "createProject":
+      case "editProject": {
+        const isCreate = modal.kind === "createProject";
+        return (
+          <>
+            <h4>{isCreate ? "Nuevo proyecto" : "Renombrar proyecto"}</h4>
+            <input
+              className="form-input"
+              placeholder="Nombre del Proyecto"
+              value={modal.name}
+              autoFocus
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && (prev.kind === "createProject" || prev.kind === "editProject")
+                    ? { ...prev, name: e.target.value }
+                    : prev,
+                )
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitProjectModal();
+                if (e.key === "Escape") setModal(null);
+              }}
+            />
+            {modal.kind === "createProject" && (
+              <>
+                <input
+                  className="form-input"
+                  placeholder="Nombre del servicio (ej: Front)"
+                  value={modal.service.name}
+                  onChange={(e) =>
+                    setModal((prev) =>
+                      prev && prev.kind === "createProject"
+                        ? { ...prev, service: { ...prev.service, name: e.target.value } }
+                        : prev,
+                    )
+                  }
+                />
+                <input
+                  className="form-input"
+                  placeholder="Ruta local (/Users/...)"
+                  value={modal.service.path}
+                  onChange={(e) =>
+                    setModal((prev) =>
+                      prev && prev.kind === "createProject"
+                        ? { ...prev, service: { ...prev.service, path: e.target.value } }
+                        : prev,
+                    )
+                  }
+                />
+                <input
+                  className="form-input"
+                  placeholder="Comando (ej: pnpm run start:dev)"
+                  value={modal.service.command}
+                  onChange={(e) =>
+                    setModal((prev) =>
+                      prev && prev.kind === "createProject"
+                        ? { ...prev, service: { ...prev.service, command: e.target.value } }
+                        : prev,
+                    )
+                  }
+                />
+                <div className="form-row">
+                  <input
+                    className="form-input input-port"
+                    type="number"
+                    placeholder="Puerto"
+                    value={modal.service.port}
+                    onChange={(e) =>
+                      setModal((prev) =>
+                        prev && prev.kind === "createProject"
+                          ? {
+                              ...prev,
+                              service: { ...prev.service, port: Number(e.target.value) },
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                  <input
+                    className="form-input input-url"
+                    placeholder="URL Local"
+                    value={modal.service.url}
+                    onChange={(e) =>
+                      setModal((prev) =>
+                        prev && prev.kind === "createProject"
+                          ? { ...prev, service: { ...prev.service, url: e.target.value } }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
+              </>
+            )}
+            <div className="form-actions">
+              <button className="btn btn-save" onClick={submitProjectModal}>
+                {isCreate ? "+ Guardar Proyecto" : "💾 Guardar Cambios"}
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      case "createService":
+      case "editService": {
+        const isCreate = modal.kind === "createService";
+        return (
+          <>
+            <h4>
+              {modal.kind === "createService"
+                ? `Nuevo servicio en "${modal.proj.name}"`
+                : `Editar servicio "${modal.service.name}"`}
+            </h4>
+            <input
+              className="form-input"
+              placeholder="Nombre del servicio (ej: Back)"
+              value={modal.fields.name}
+              autoFocus
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && (prev.kind === "createService" || prev.kind === "editService")
+                    ? { ...prev, fields: { ...prev.fields, name: e.target.value } }
+                    : prev,
+                )
+              }
+            />
+            <input
+              className="form-input"
+              placeholder="Ruta local (/Users/...)"
+              value={modal.fields.path}
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && (prev.kind === "createService" || prev.kind === "editService")
+                    ? { ...prev, fields: { ...prev.fields, path: e.target.value } }
+                    : prev,
+                )
+              }
+            />
+            <input
+              className="form-input"
+              placeholder="Comando (ej: pnpm run start:dev)"
+              value={modal.fields.command}
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && (prev.kind === "createService" || prev.kind === "editService")
+                    ? { ...prev, fields: { ...prev.fields, command: e.target.value } }
+                    : prev,
+                )
+              }
+            />
+            <div className="form-row">
+              <input
+                className="form-input input-port"
+                type="number"
+                placeholder="Puerto"
+                value={modal.fields.port}
+                onChange={(e) =>
+                  setModal((prev) =>
+                    prev && (prev.kind === "createService" || prev.kind === "editService")
+                      ? { ...prev, fields: { ...prev.fields, port: Number(e.target.value) } }
+                      : prev,
+                  )
+                }
+              />
+              <input
+                className="form-input input-url"
+                placeholder="URL Local"
+                value={modal.fields.url}
+                onChange={(e) =>
+                  setModal((prev) =>
+                    prev && (prev.kind === "createService" || prev.kind === "editService")
+                      ? { ...prev, fields: { ...prev.fields, url: e.target.value } }
+                      : prev,
+                  )
+                }
+              />
+            </div>
+            <div className="form-actions">
+              <button className="btn btn-save" onClick={submitServiceModal}>
+                {isCreate ? "+ Guardar Servicio" : "💾 Guardar Cambios"}
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+      }
+
+      case "createTask":
+        return (
+          <>
+            <h4>
+              Nueva tarea en "{modal.proj.name} · {modal.service.name}"
+            </h4>
+            <input
+              className="form-input"
+              placeholder="Nombre (ej: Test)"
+              value={modal.fields.name}
+              autoFocus
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && prev.kind === "createTask"
+                    ? { ...prev, fields: { ...prev.fields, name: e.target.value } }
+                    : prev,
+                )
+              }
+            />
+            <input
+              className="form-input"
+              placeholder='Comando (ej: npm run test, o git commit -m "{{mensaje}}")'
+              value={modal.fields.command}
+              onChange={(e) =>
+                setModal((prev) =>
+                  prev && prev.kind === "createTask"
+                    ? { ...prev, fields: { ...prev.fields, command: e.target.value } }
+                    : prev,
+                )
+              }
+            />
+            <div className="form-actions">
+              <button className="btn btn-save" onClick={submitTaskModal}>
+                Guardar
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+
+      case "confirmDeleteProject":
+        return (
+          <>
+            <h4>¿Eliminar proyecto "{modal.proj.name}"?</h4>
+            <p className="modal-sub">
+              Se liberarán los puertos de sus {modal.proj.services.length} servicio(s) y se
+              perderán sus tareas.
+            </p>
+            <div className="form-actions">
+              <button className="btn btn-confirm-delete" onClick={confirmDeleteProject}>
+                🗑 Eliminar
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+
+      case "confirmDeleteService":
+        return (
+          <>
+            <h4>¿Eliminar servicio "{modal.service.name}"?</h4>
+            <p className="modal-sub">
+              Se liberará el puerto {modal.service.port} y se perderán sus tareas.
+            </p>
+            <div className="form-actions">
+              <button className="btn btn-confirm-delete" onClick={confirmDeleteService}>
+                🗑 Eliminar
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+
+      case "confirmDeleteTask":
+        return (
+          <>
+            <h4>¿Eliminar tarea "{modal.task.name}"?</h4>
+            <div className="form-actions">
+              <button className="btn btn-confirm-delete" onClick={confirmDeleteTask}>
+                🗑 Eliminar
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+
+      case "params":
+        return (
+          <>
+            <h4>Parámetros para "{modal.task.name}"</h4>
+            <p className="modal-sub">{modal.label}</p>
+            {modal.params.map((p, i) => (
+              <input
+                key={p}
+                className="form-input"
+                placeholder={p}
+                value={modal.values[p]}
+                autoFocus={i === 0}
+                onChange={(e) =>
+                  setModal((prev) =>
+                    prev && prev.kind === "params"
+                      ? { ...prev, values: { ...prev.values, [p]: e.target.value } }
+                      : prev,
+                  )
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitParamsModal();
+                  if (e.key === "Escape") setModal(null);
+                }}
+              />
+            ))}
+            <div className="form-actions">
+              <button className="btn btn-save" onClick={submitParamsModal}>
+                ▶ Ejecutar
+              </button>
+              <button className="btn btn-cancel" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+            </div>
+          </>
+        );
+
+      default:
+        return null;
+    }
   };
 
   return (
     <div className="app-container">
       <div className="header-section">
         <h2>Panel de Proyectos Locales</h2>
+        <button className="btn btn-save" onClick={openCreateProject}>
+          + Nuevo Proyecto
+        </button>
       </div>
 
-      <div className="row">
-        {/* Formulario Lateral */}
-        <div className="col-4">
-          <div className="card">
-            <div className="card-body">
-              <input
-                className="form-input"
-                placeholder="Nombre del Proyecto"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-              />
-
-              {!editingProjectId && (
-                <>
-                  <input
-                    className="form-input"
-                    placeholder="Nombre del servicio (ej: Front)"
-                    value={initialService.name}
-                    onChange={(e) =>
-                      setInitialService({ ...initialService, name: e.target.value })
-                    }
-                  />
-                  <input
-                    className="form-input"
-                    placeholder="Ruta local (/Users/...)"
-                    value={initialService.path}
-                    onChange={(e) =>
-                      setInitialService({ ...initialService, path: e.target.value })
-                    }
-                  />
-                  <input
-                    className="form-input"
-                    placeholder="Comando (ej: pnpm run start:dev)"
-                    value={initialService.command}
-                    onChange={(e) =>
-                      setInitialService({ ...initialService, command: e.target.value })
-                    }
-                  />
-                  <div className="form-row">
-                    <input
-                      className="form-input input-port"
-                      type="number"
-                      placeholder="Puerto"
-                      value={initialService.port}
-                      onChange={(e) =>
-                        setInitialService({ ...initialService, port: Number(e.target.value) })
-                      }
-                    />
-                    <input
-                      className="form-input input-url"
-                      placeholder="URL Local"
-                      value={initialService.url}
-                      onChange={(e) =>
-                        setInitialService({ ...initialService, url: e.target.value })
-                      }
-                    />
-                  </div>
-                </>
-              )}
-
-              <div className="form-actions">
-                <button className="btn btn-save" onClick={addProject}>
-                  {editingProjectId ? "💾 Guardar Cambios" : "+ Guardar Proyecto"}
+      {/* Lista de Proyectos */}
+      <div className="projects-column">
+        {projects.map((proj) => (
+          <div key={proj.id} className="project-group">
+            <div className="project-group-header">
+              <span className="project-group-name">{proj.name}</span>
+              <div className="project-group-actions">
+                <button
+                  className="btn btn-action btn-view-toggle"
+                  onClick={() => toggleProjectExpanded(proj.id)}
+                >
+                  {expandedProjectIds.has(proj.id) ? "▾ Vista mínima" : "▸ Vista completa"}
                 </button>
-                {editingProjectId && (
-                  <button className="btn btn-cancel" onClick={resetProjectForm}>
-                    Cancelar
-                  </button>
-                )}
+                <button className="btn btn-action btn-run" onClick={() => runAllServices(proj)}>
+                  ▶ Iniciar todo
+                </button>
+                <button className="btn btn-action btn-kill" onClick={() => killAllServices(proj)}>
+                  🛑 Matar todo
+                </button>
+                <button className="btn btn-action btn-edit" onClick={() => openEditProject(proj)}>
+                  ✏️ Renombrar
+                </button>
+                <button
+                  className="btn btn-action btn-delete"
+                  onClick={() => askDeleteProject(proj)}
+                >
+                  🗑
+                </button>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Lista de Proyectos */}
-        <div className="col-8 projects-column">
-          {projects.map((proj) => (
-            <div key={proj.id} className="project-group">
-              <div className="project-group-header">
-                <span className="project-group-name">{proj.name}</span>
-                <div className="project-group-actions">
-                  <button
-                    className="btn btn-action btn-view-toggle"
-                    onClick={() => toggleProjectExpanded(proj.id)}
-                  >
-                    {expandedProjectIds.has(proj.id) ? "▾ Vista mínima" : "▸ Vista completa"}
-                  </button>
-                  <button className="btn btn-action btn-run" onClick={() => runAllServices(proj)}>
-                    ▶ Iniciar todo
-                  </button>
-                  <button
-                    className="btn btn-action btn-kill"
-                    onClick={() => killAllServices(proj)}
-                  >
-                    🛑 Matar todo
-                  </button>
-                  <button
-                    className="btn btn-action btn-edit"
-                    onClick={() => startEditProject(proj)}
-                  >
-                    ✏️ Renombrar
-                  </button>
-                  {confirmDeleteProjectId === proj.id ? (
-                    <>
-                      <button
-                        className="btn btn-action btn-delete"
-                        onClick={() => deleteProject(proj)}
-                      >
-                        ✅ Confirmar
-                      </button>
-                      <button
-                        className="btn btn-action"
-                        onClick={() => setConfirmDeleteProjectId(null)}
-                      >
-                        ✖ Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="btn btn-action btn-delete"
-                      onClick={() => setConfirmDeleteProjectId(proj.id)}
+            <div className="services-list">
+              {!expandedProjectIds.has(proj.id) && (
+                // Vista mínima: solo chips compactos por servicio (nombre,
+                // puerto, iniciar/matar). Sin rutas, comandos ni tareas.
+                <div className="services-mini-row">
+                  {proj.services.map((service) => (
+                    <div
+                      key={service.id}
+                      className="service-chip-mini"
+                      onClick={() => setActiveTab(service.id)}
+                      title={`${service.path} • ${service.command}`}
                     >
-                      🗑
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="services-list">
-                {!expandedProjectIds.has(proj.id) && (
-                  // Vista mínima: solo chips compactos por servicio (nombre,
-                  // puerto, iniciar/matar). Sin rutas, comandos ni tareas.
-                  <div className="services-mini-row">
-                    {proj.services.map((service) => (
-                      <div
-                        key={service.id}
-                        className="service-chip-mini"
-                        onClick={() => setActiveTab(service.id)}
-                        title={`${service.path} • ${service.command}`}
+                      <span className="service-chip-name">{service.name}</span>
+                      <span className="service-chip-port">:{service.port}</span>
+                      <button
+                        className="btn btn-action btn-run"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          runService(service);
+                        }}
+                        title="Iniciar"
                       >
-                        <span className="service-chip-name">{service.name}</span>
-                        <span className="service-chip-port">:{service.port}</span>
-                        <button
-                          className="btn btn-action btn-run"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            runService(service);
-                          }}
-                          title="Iniciar"
-                        >
-                          ▶
-                        </button>
-                        <button
-                          className="btn btn-action btn-kill"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            killService(service);
-                          }}
-                          title="Matar puerto"
-                        >
-                          🛑
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        ▶
+                      </button>
+                      <button
+                        className="btn btn-action btn-kill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          killService(service);
+                        }}
+                        title="Matar puerto"
+                      >
+                        🛑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-                {expandedProjectIds.has(proj.id) &&
-                  proj.services.map((service) => (
+              {expandedProjectIds.has(proj.id) &&
+                proj.services.map((service) => (
                   <div key={service.id} className="project-card">
                     <div className="project-main">
                       <div className="project-info">
@@ -680,33 +921,16 @@ export default function App() {
                         </button>
                         <button
                           className="btn btn-action btn-edit"
-                          onClick={() => startEditService(proj, service)}
+                          onClick={() => openEditService(proj, service)}
                         >
                           ✏️ Editar
                         </button>
-                        {confirmDeleteServiceId === service.id ? (
-                          <>
-                            <button
-                              className="btn btn-action btn-delete"
-                              onClick={() => deleteService(proj, service)}
-                            >
-                              ✅ Confirmar
-                            </button>
-                            <button
-                              className="btn btn-action"
-                              onClick={() => setConfirmDeleteServiceId(null)}
-                            >
-                              ✖ Cancelar
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            className="btn btn-action btn-delete"
-                            onClick={() => setConfirmDeleteServiceId(service.id)}
-                          >
-                            🗑
-                          </button>
-                        )}
+                        <button
+                          className="btn btn-action btn-delete"
+                          onClick={() => askDeleteService(proj, service)}
+                        >
+                          🗑
+                        </button>
                       </div>
                     </div>
 
@@ -732,7 +956,7 @@ export default function App() {
                             </button>
                             <button
                               className="btn btn-action btn-delete"
-                              onClick={() => deleteTask(proj, service, task)}
+                              onClick={() => askDeleteTask(proj, service, task)}
                               title="Eliminar tarea"
                             >
                               🗑
@@ -741,120 +965,26 @@ export default function App() {
                         ))}
                         <button
                           className="btn btn-action btn-add-task"
-                          onClick={() =>
-                            taskFormFor?.serviceId === service.id
-                              ? closeTaskForm()
-                              : openTaskForm(proj.id, service.id)
-                          }
+                          onClick={() => openCreateTask(proj, service)}
                         >
                           + Tarea
                         </button>
                       </div>
-
-                      {taskFormFor?.serviceId === service.id && (
-                        <div className="task-form">
-                          <input
-                            className="form-input"
-                            placeholder="Nombre (ej: Test)"
-                            value={taskForm.name}
-                            onChange={(e) =>
-                              setTaskForm({ ...taskForm, name: e.target.value })
-                            }
-                          />
-                          <input
-                            className="form-input"
-                            placeholder='Comando (ej: npm run test, o git commit -m "{{mensaje}}")'
-                            value={taskForm.command}
-                            onChange={(e) =>
-                              setTaskForm({ ...taskForm, command: e.target.value })
-                            }
-                          />
-                          <button className="btn btn-save" onClick={() => saveTask(proj, service)}>
-                            Guardar
-                          </button>
-                          <button className="btn btn-cancel" onClick={closeTaskForm}>
-                            Cancelar
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))}
 
-                {expandedProjectIds.has(proj.id) && (
-                  <button
-                    className="btn btn-action btn-add-service"
-                    onClick={() =>
-                      serviceFormFor === proj.id && !editingServiceId
-                        ? closeServiceForm()
-                        : openServiceForm(proj.id)
-                    }
-                  >
-                    + Servicio (ej: Back)
-                  </button>
-                )}
-
-                {serviceFormFor === proj.id && (
-                  <div className="card service-form-card">
-                    <div className="card-body">
-                      <input
-                        className="form-input"
-                        placeholder="Nombre del servicio (ej: Back)"
-                        value={serviceForm.name}
-                        onChange={(e) =>
-                          setServiceForm({ ...serviceForm, name: e.target.value })
-                        }
-                      />
-                      <input
-                        className="form-input"
-                        placeholder="Ruta local (/Users/...)"
-                        value={serviceForm.path}
-                        onChange={(e) =>
-                          setServiceForm({ ...serviceForm, path: e.target.value })
-                        }
-                      />
-                      <input
-                        className="form-input"
-                        placeholder="Comando (ej: pnpm run start:dev)"
-                        value={serviceForm.command}
-                        onChange={(e) =>
-                          setServiceForm({ ...serviceForm, command: e.target.value })
-                        }
-                      />
-                      <div className="form-row">
-                        <input
-                          className="form-input input-port"
-                          type="number"
-                          placeholder="Puerto"
-                          value={serviceForm.port}
-                          onChange={(e) =>
-                            setServiceForm({ ...serviceForm, port: Number(e.target.value) })
-                          }
-                        />
-                        <input
-                          className="form-input input-url"
-                          placeholder="URL Local"
-                          value={serviceForm.url}
-                          onChange={(e) =>
-                            setServiceForm({ ...serviceForm, url: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="form-actions">
-                        <button className="btn btn-save" onClick={() => saveService(proj)}>
-                          {editingServiceId ? "💾 Guardar Cambios" : "+ Guardar Servicio"}
-                        </button>
-                        <button className="btn btn-cancel" onClick={closeServiceForm}>
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {expandedProjectIds.has(proj.id) && (
+                <button
+                  className="btn btn-action btn-add-service"
+                  onClick={() => openCreateService(proj)}
+                >
+                  + Servicio (ej: Back)
+                </button>
+              )}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
 
       {/* Terminales por servicio */}
@@ -890,46 +1020,15 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modal de parámetros: se muestra cuando la tarea a ejecutar tiene
-          placeholders {{param}} pendientes de completar. No usamos
-          window.prompt porque WKWebView (macOS) tampoco lo implementa de
-          forma confiable, igual que window.confirm (ver comentario arriba). */}
-      {paramRequest && (
-        <div className="modal-overlay" onClick={() => setParamRequest(null)}>
+      {/* Modal único: agrupa formularios de creación/edición y
+          confirmaciones de cambios/eliminación. No usamos window.prompt ni
+          window.confirm porque WKWebView (macOS) no los implementa de forma
+          confiable: la llamada devuelve un valor por defecto al instante sin
+          mostrar nada, así que el flujo nunca llega a completarse. */}
+      {modal && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <h4>Parámetros para "{paramRequest.task.name}"</h4>
-            <p className="modal-sub">{paramRequest.label}</p>
-            {paramRequest.params.map((p, i) => (
-              <input
-                key={p}
-                className="form-input"
-                placeholder={p}
-                value={paramRequest.values[p]}
-                autoFocus={i === 0}
-                onChange={(e) =>
-                  setParamRequest((prev) =>
-                    prev
-                      ? { ...prev, values: { ...prev.values, [p]: e.target.value } }
-                      : prev,
-                  )
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitParamRequest();
-                  if (e.key === "Escape") setParamRequest(null);
-                }}
-              />
-            ))}
-            <div className="form-actions">
-              <button className="btn btn-save" onClick={submitParamRequest}>
-                ▶ Ejecutar
-              </button>
-              <button
-                className="btn btn-cancel"
-                onClick={() => setParamRequest(null)}
-              >
-                Cancelar
-              </button>
-            </div>
+            {renderModalBody()}
           </div>
         </div>
       )}
