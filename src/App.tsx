@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { ask } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 
 export interface Task {
@@ -48,18 +49,18 @@ interface TaskFields {
   command: string;
 }
 
-// Todos los formularios y confirmaciones de la app viven en un único modal
-// (uno a la vez), abierto siempre desde un botón. `kind` decide qué cuerpo
-// se renderiza; cada variante lleva solo los datos que necesita.
+// Todos los formularios de la app viven en un único modal (uno a la vez),
+// abierto siempre desde un botón. `kind` decide qué cuerpo se renderiza;
+// cada variante lleva solo los datos que necesita. Las confirmaciones de
+// borrado NO viven aquí: usan `ask()` de @tauri-apps/plugin-dialog, que
+// muestra una alerta nativa real del sistema (NSAlert en macOS) en vez de
+// un modal dibujado en la página.
 type Modal =
   | { kind: "createProject"; name: string; service: ServiceFields }
   | { kind: "editProject"; proj: Project; name: string }
   | { kind: "createService"; proj: Project; fields: ServiceFields }
   | { kind: "editService"; proj: Project; service: Service; fields: ServiceFields }
   | { kind: "createTask"; proj: Project; service: Service; fields: TaskFields }
-  | { kind: "confirmDeleteProject"; proj: Project }
-  | { kind: "confirmDeleteService"; proj: Project; service: Service }
-  | { kind: "confirmDeleteTask"; proj: Project; service: Service; task: Task }
   | {
       kind: "params";
       service: Service;
@@ -217,13 +218,19 @@ export default function App() {
     }
   };
 
-  const askDeleteProject = (proj: Project) => setModal({ kind: "confirmDeleteProject", proj });
+  const askDeleteProject = async (proj: Project) => {
+    // Alerta nativa real del sistema (NSAlert en macOS) en vez de un modal
+    // dibujado en la página: a diferencia de los formularios, una
+    // confirmación sí encaja en lo que un diálogo nativo puede mostrar
+    // (título + mensaje + botones).
+    const confirmed = await ask(
+      `Se liberarán los puertos de sus ${proj.services.length} servicio(s) y se perderán sus tareas.`,
+      { title: `¿Eliminar proyecto "${proj.name}"?`, kind: "warning" },
+    );
+    if (confirmed) deleteProject(proj);
+  };
 
-  const confirmDeleteProject = async () => {
-    if (!modal || modal.kind !== "confirmDeleteProject") return;
-    const { proj } = modal;
-    setModal(null);
-
+  const deleteProject = async (proj: Project) => {
     // Mata los procesos escuchando en los puertos de todos los servicios del
     // proyecto antes de quitarlo, para no dejar procesos huérfanos corriendo
     // en segundo plano una vez que el proyecto ya no es visible.
@@ -301,13 +308,15 @@ export default function App() {
     }
   };
 
-  const askDeleteService = (proj: Project, service: Service) =>
-    setModal({ kind: "confirmDeleteService", proj, service });
+  const askDeleteService = async (proj: Project, service: Service) => {
+    const confirmed = await ask(
+      `Se liberará el puerto ${service.port} y se perderán sus tareas.`,
+      { title: `¿Eliminar servicio "${service.name}"?`, kind: "warning" },
+    );
+    if (confirmed) deleteService(proj, service);
+  };
 
-  const confirmDeleteService = async () => {
-    if (!modal || modal.kind !== "confirmDeleteService") return;
-    const { proj, service } = modal;
-    setModal(null);
+  const deleteService = async (proj: Project, service: Service) => {
     try {
       const res = await invoke<string>("kill_port", { port: service.port });
       addLog(GENERAL, ` 🛑 Puerto ${service.port}: ${res}`);
@@ -401,13 +410,15 @@ export default function App() {
     setModal(null);
   };
 
-  const askDeleteTask = (proj: Project, service: Service, task: Task) =>
-    setModal({ kind: "confirmDeleteTask", proj, service, task });
+  const askDeleteTask = async (proj: Project, service: Service, task: Task) => {
+    const confirmed = await ask(`Se eliminará la tarea "${task.name}".`, {
+      title: `¿Eliminar tarea "${task.name}"?`,
+      kind: "warning",
+    });
+    if (confirmed) deleteTask(proj, service, task);
+  };
 
-  const confirmDeleteTask = () => {
-    if (!modal || modal.kind !== "confirmDeleteTask") return;
-    const { proj, service, task } = modal;
-    setModal(null);
+  const deleteTask = (proj: Project, service: Service, task: Task) => {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === proj.id
@@ -701,58 +712,6 @@ export default function App() {
             <div className="form-actions">
               <button className="btn btn-save" onClick={submitTaskModal}>
                 Guardar
-              </button>
-              <button className="btn btn-cancel" onClick={() => setModal(null)}>
-                Cancelar
-              </button>
-            </div>
-          </>
-        );
-
-      case "confirmDeleteProject":
-        return (
-          <>
-            <h4>¿Eliminar proyecto "{modal.proj.name}"?</h4>
-            <p className="modal-sub">
-              Se liberarán los puertos de sus {modal.proj.services.length} servicio(s) y se
-              perderán sus tareas.
-            </p>
-            <div className="form-actions">
-              <button className="btn btn-confirm-delete" onClick={confirmDeleteProject}>
-                🗑 Eliminar
-              </button>
-              <button className="btn btn-cancel" onClick={() => setModal(null)}>
-                Cancelar
-              </button>
-            </div>
-          </>
-        );
-
-      case "confirmDeleteService":
-        return (
-          <>
-            <h4>¿Eliminar servicio "{modal.service.name}"?</h4>
-            <p className="modal-sub">
-              Se liberará el puerto {modal.service.port} y se perderán sus tareas.
-            </p>
-            <div className="form-actions">
-              <button className="btn btn-confirm-delete" onClick={confirmDeleteService}>
-                🗑 Eliminar
-              </button>
-              <button className="btn btn-cancel" onClick={() => setModal(null)}>
-                Cancelar
-              </button>
-            </div>
-          </>
-        );
-
-      case "confirmDeleteTask":
-        return (
-          <>
-            <h4>¿Eliminar tarea "{modal.task.name}"?</h4>
-            <div className="form-actions">
-              <button className="btn btn-confirm-delete" onClick={confirmDeleteTask}>
-                🗑 Eliminar
               </button>
               <button className="btn btn-cancel" onClick={() => setModal(null)}>
                 Cancelar
