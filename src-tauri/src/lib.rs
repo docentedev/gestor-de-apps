@@ -19,18 +19,29 @@ struct TaskConfig {
     command: String,
 }
 
+// Un proyecto ahora agrupa uno o más servicios (ej: Front y Back de la misma
+// app), cada uno con su propia ruta/comando/puerto/URL y sus propias tareas.
+// El proyecto en sí es solo un contenedor organizativo (id + nombre).
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct ProjectConfig {
+struct ServiceConfig {
     id: String,
     name: String,
     path: String,
     url: String,
     port: u16,
     command: String,
-    // `default` para no romper la carga de projects.json guardados antes de
-    // que existiera este campo (quedan con una lista de tareas vacía).
     #[serde(default)]
     tasks: Vec<TaskConfig>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct ProjectConfig {
+    id: String,
+    name: String,
+    // `default` para tolerar el formato viejo (sin "services") al migrar en
+    // `migrate_projects_value`; en la práctica siempre llega poblado.
+    #[serde(default)]
+    services: Vec<ServiceConfig>,
 }
 
 // Ruta al archivo de configuración persistente (JSON) en el directorio de
@@ -42,6 +53,40 @@ fn projects_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("projects.json"))
 }
 
+// Convierte el formato viejo de projects.json (un proyecto = un solo
+// servicio, con path/url/port/command/tasks directamente en el proyecto) al
+// formato actual (proyecto -> lista de servicios). Sin esto, cargar un
+// archivo guardado antes de este cambio perdería toda la configuración: al
+// no existir el campo "services", el `#[serde(default)]` de ProjectConfig
+// lo dejaría vacío y el proyecto quedaría sin ningún servicio.
+fn migrate_projects_value(mut value: serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Array(projects) = &mut value {
+        for project in projects {
+            let Some(obj) = project.as_object_mut() else { continue };
+            let has_services = matches!(obj.get("services"), Some(serde_json::Value::Array(_)));
+            if has_services || !obj.contains_key("path") {
+                continue;
+            }
+            let id = obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("service")
+                .to_string();
+            let service = serde_json::json!({
+                "id": format!("{}-svc", id),
+                "name": "Principal",
+                "path": obj.remove("path").unwrap_or(serde_json::Value::String(String::new())),
+                "url": obj.remove("url").unwrap_or(serde_json::Value::String(String::new())),
+                "port": obj.remove("port").unwrap_or(serde_json::Value::Number(0.into())),
+                "command": obj.remove("command").unwrap_or(serde_json::Value::String(String::new())),
+                "tasks": obj.remove("tasks").unwrap_or(serde_json::Value::Array(vec![])),
+            });
+            obj.insert("services".to_string(), serde_json::Value::Array(vec![service]));
+        }
+    }
+    value
+}
+
 #[tauri::command]
 fn load_projects(app: AppHandle) -> Result<Vec<ProjectConfig>, String> {
     let path = projects_file_path(&app)?;
@@ -49,7 +94,9 @@ fn load_projects(app: AppHandle) -> Result<Vec<ProjectConfig>, String> {
         return Ok(vec![]);
     }
     let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&data).map_err(|e| e.to_string())
+    let value: serde_json::Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    let migrated = migrate_projects_value(value);
+    serde_json::from_value(migrated).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
