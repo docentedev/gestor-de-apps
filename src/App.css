@@ -1,23 +1,43 @@
+/* Paleta inspirada en macOS Dark Mode (Human Interface Guidelines):
+   superficies "elevated"/"window" del sistema, separadores en hairline,
+   colores de acento del sistema (blue/red/green/teal) y radios/tamaños de
+   control nativos, en vez del neumorfismo naranja anterior. */
 :root {
-  --bg-dark: #1e2128;
-  --shadow-dark: #15171c;
-  --shadow-light: #272b34;
+  --bg-window: #1e1e1e;
+  --bg-elevated: #2a2a2c;
+  --bg-elevated-2: #363638;
 
-  --border-light: rgba(255, 255, 255, 0.05);
-  --border-dark: rgba(0, 0, 0, 0.3);
+  --control-bg: rgba(255, 255, 255, 0.06);
+  --control-bg-hover: rgba(255, 255, 255, 0.1);
+  --control-bg-active: rgba(255, 255, 255, 0.15);
 
-  --accent-orange: #ff5500;
-  --accent-gradient: linear-gradient(135deg, #ff6b00 0%, #e63900 100%);
+  --separator: rgba(255, 255, 255, 0.1);
+  --separator-strong: rgba(255, 255, 255, 0.16);
 
-  --text-primary: #f1f5f9;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --label: rgba(255, 255, 255, 0.92);
+  --label-secondary: rgba(235, 235, 245, 0.6);
+  --label-tertiary: rgba(235, 235, 245, 0.38);
 
-  --radius-card: 16px;
-  --radius-btn: 10px;
-  --radius-input: 10px;
+  --accent: #0a84ff;
+  --accent-hover: #3aa2ff;
+  --accent-active: #0870d8;
 
-  --transition-fast: all 0.2s ease;
+  --red: #ff453a;
+  --red-hover: #ff6961;
+  --red-active: #e0362c;
+
+  --green: #30d158;
+  --teal: #64d2ff;
+  --orange: #ff9f0a;
+
+  --radius-window: 12px;
+  --radius-card: 10px;
+  --radius-control: 7px;
+
+  --shadow-elevated: 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.55);
+
+  --transition-fast: all 0.12s ease-out;
 }
 
 * {
@@ -30,83 +50,233 @@ html,
 body,
 #root {
   min-height: 100vh;
-  background-color: var(--bg-dark);
-  color: var(--text-primary);
+  background-color: var(--bg-window);
+  color: var(--label);
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 14px;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+    sans-serif;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
 
 .app-container {
-  max-width: 1500px;
   margin: 0 auto;
-  padding: 32px 24px;
+  max-width: 100%;
+  padding: 28px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
+}
+
+.header-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--separator);
 }
 
 .header-section h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--label);
+  letter-spacing: -0.01em;
 }
 
-.row {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 24px;
-  width: 100%;
-}
-
-.col-4 {
-  grid-column: span 4;
-}
-.col-8 {
-  grid-column: span 8;
-}
-
-@media (max-width: 1024px) {
-  .col-4,
-  .col-8 {
-    grid-column: span 12;
-  }
-}
-
+/* --- SUPERFICIES --- */
 .card,
 .project-card {
-  background: var(--bg-dark);
+  background: var(--bg-elevated);
   border-radius: var(--radius-card);
-  border: 1px solid var(--border-light);
-  box-shadow:
-    5px 5px 10px var(--shadow-dark),
-    -4px -4px 10px var(--shadow-light);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-elevated);
 }
 
 .card-body {
-  padding: 20px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+}
+
+/* Contenedor de proyectos+terminal. Mobile-first: apilado en el orden del
+   DOM (proyectos con sus tareas primero, terminal debajo) sin tocar
+   `order`, así el layout chico no depende de que la media query cargue. */
+.main-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Pantalla grande: grid de dos columnas con la terminal fija a la
+   izquierda (para seguir la salida en vivo mientras se gestionan
+   proyectos/tareas) y la lista de proyectos a la derecha. `order: -1` en
+   la terminal la manda a la primera celda del grid sin reordenar el DOM,
+   así el lector de pantalla y la vista chica siguen viendo "proyectos
+   primero". */
+@media (min-width: 1080px) {
+  .main-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 400px) 1fr;
+    align-items: start;
+    gap: 28px;
+  }
+
+  .main-layout > .console-section {
+    order: -1;
+    position: sticky;
+    top: 20px;
+  }
+
+  .main-layout > .console-section .console-box {
+    max-height: calc(100vh - 180px);
+  }
 }
 
 .projects-column {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
 }
 
-.project-card {
-  padding: 18px 20px;
+/* --- GRUPO (PROYECTO) --- */
+/* El grupo entero (header + servicios) vive dentro de su propia superficie,
+   apenas más clara que el fondo: separa un proyecto del siguiente en la
+   lista y le da a los chips/cards de servicio (que sí usan --bg-elevated,
+   más saturado) algo contra qué destacar. */
+.project-group {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+}
+
+.project-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.project-group-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.project-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-add-service,
+.btn-add-task {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--accent);
+}
+
+.btn-add-service:hover,
+.btn-add-task:hover {
+  color: var(--accent-hover);
+  background: transparent;
+  box-shadow: none;
+}
+
+.btn-view-toggle {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+  color: var(--label-tertiary);
+}
+
+.btn-view-toggle:hover {
+  color: var(--label-secondary);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* --- VISTA MÍNIMA DE SERVICIOS --- */
+.services-mini-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.service-chip-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated-2);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  padding: 6px 6px 6px 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.service-chip-mini:hover {
+  border-color: var(--separator-strong);
+}
+
+.service-chip-mini .service-chip-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--label);
+}
+
+.service-chip-mini .service-chip-port {
+  font-size: 0.75rem;
+  color: var(--label-tertiary);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
+.service-chip-mini .btn-action {
+  border-radius: 999px;
+}
+
+/* Los botones de los chips comparten fondo con la píldora que los
+   contiene; sin un tono propio quedan casi invisibles en reposo (solo se
+   notaban al pasar el mouse). Un fondo más oscuro los separa del chip. */
+.service-chip-mini .btn-icon-only {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: transparent;
+}
+
+.service-chip-mini .btn-icon-only:hover {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.project-card {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.project-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 @media (min-width: 768px) {
-  .project-card {
+  .project-main {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -116,30 +286,48 @@ body,
 .project-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .project-name {
-  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--label);
+}
+
+/* Punto de corriendo/detenido. El halo (box-shadow) en el estado activo es
+   lo que lo hace leerse como "vivo" y no solo como una etiqueta de color. */
+.status-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.status-dot.running {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(48, 209, 88, 0.25);
 }
 
 .project-path {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  font-family: monospace;
+  font-size: 0.78rem;
+  color: var(--label-tertiary);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
   word-break: break-all;
 }
 
 .project-details {
-  font-size: 0.82rem;
-  color: var(--text-dim);
+  font-size: 0.8rem;
+  color: var(--label-secondary);
 }
 
 .project-details code {
-  color: #ff8c00;
-  font-weight: 600;
+  color: var(--teal);
+  font-weight: 500;
 }
 
 /* --- INPUTS & FORMULARIO --- */
@@ -148,33 +336,27 @@ body,
 .input-url {
   width: 100%;
   min-width: 0; /* Previene el overflow en Flexbox */
-  background: #181a20;
-  border: 1px solid var(--border-dark);
-  border-radius: var(--radius-input);
-  padding: 10px 14px;
-  color: var(--text-primary);
-  font-size: 0.88rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  color: var(--label);
+  font-size: 0.85rem;
   outline: none;
-  box-shadow:
-    inset 2px 2px 5px var(--shadow-dark),
-    inset -2px -2px 5px var(--shadow-light);
   transition: var(--transition-fast);
 }
 
 .form-input::placeholder,
 .input-port::placeholder,
 .input-url::placeholder {
-  color: var(--text-dim);
+  color: var(--label-tertiary);
 }
 
 .form-input:focus,
 .input-port:focus,
 .input-url:focus {
-  border-color: rgba(255, 85, 0, 0.5);
-  box-shadow:
-    inset 2px 2px 5px var(--shadow-dark),
-    inset -2px -2px 5px var(--shadow-light),
-    0 0 0 1px rgba(255, 85, 0, 0.4);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px rgba(10, 132, 255, 0.35);
 }
 
 .form-row {
@@ -193,91 +375,115 @@ body,
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   margin-top: 4px;
 }
 
 /* --- BOTONES --- */
 .btn {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-btn);
-  padding: 8px 14px;
-  font-size: 0.82rem;
+  background: var(--control-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  padding: 6px 12px;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--label-secondary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   white-space: nowrap;
-  box-shadow:
-    3px 3px 7px var(--shadow-dark),
-    -3px -3px 7px var(--shadow-light);
   transition: var(--transition-fast);
 }
 
 .btn:hover {
-  color: var(--text-primary);
-  box-shadow:
-    4px 4px 9px var(--shadow-dark),
-    -4px -4px 9px var(--shadow-light);
+  color: var(--label);
+  background: var(--control-bg-hover);
+  border-color: var(--separator-strong);
 }
 
 .btn:active,
 .btn-action:active {
-  transform: translateY(1px);
-  box-shadow:
-    inset 2px 2px 4px var(--shadow-dark),
-    inset -2px -2px 4px var(--shadow-light) !important;
+  background: var(--control-bg-active);
+  transform: scale(0.97);
+}
+
+.btn svg {
+  flex-shrink: 0;
+}
+
+/* Botones sin etiqueta de texto (solo icono + tooltip vía title): mismo
+   padding en los cuatro lados para que quede cuadrado, no rectangular. */
+.btn-icon-only {
+  padding: 6px;
+}
+
+.project-actions .btn-icon-only {
+  padding: 5px;
+}
+
+.service-chip-mini .btn-icon-only,
+.task-chip .btn-icon-only {
+  padding: 3px;
 }
 
 .btn-save {
-  background: var(--accent-gradient);
-  border: none;
+  background: var(--accent);
+  border-color: var(--accent);
   color: #ffffff;
   font-weight: 600;
-  box-shadow:
-    0 4px 12px rgba(255, 85, 0, 0.35),
-    3px 3px 7px var(--shadow-dark);
 }
 
 .btn-save:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
   color: #ffffff;
-  box-shadow:
-    0 4px 16px rgba(255, 85, 0, 0.5),
-    4px 4px 9px var(--shadow-dark);
+}
+
+.btn-save:active {
+  background: var(--accent-active);
 }
 
 .btn-cancel {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  color: var(--label-secondary);
+}
+
+.btn-cancel:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--label);
 }
 
 .project-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .btn-action {
-  padding: 7px 11px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
 }
 
 .btn-run:hover {
-  color: #34d399;
+  color: var(--green);
 }
 .btn-kill:hover {
-  color: #f87171;
+  color: var(--red);
 }
 .btn-open:hover {
-  color: #38bdf8;
+  color: var(--accent);
+}
+.btn-edit:hover {
+  color: var(--label);
 }
 .btn-delete:hover {
-  color: #f87171;
+  color: var(--red);
 }
 
 /* --- TERMINAL --- */
@@ -285,72 +491,298 @@ body,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 8px;
+}
+
+.console-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.btn-clear-log {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--label-tertiary);
+}
+
+.btn-clear-log:hover {
+  color: var(--label-secondary);
+  background: transparent;
+  box-shadow: none;
 }
 
 .console-section h4 {
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--label-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
+/* Control segmentado, como el de macOS: un contenedor con el segmento
+   activo resaltado, en vez de pestañas sueltas con acento naranja. */
 .terminal-tabs {
-  display: flex;
-  gap: 6px;
+  display: inline-flex;
+  gap: 2px;
   flex-wrap: wrap;
+  background: var(--control-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  padding: 2px;
 }
 
 .terminal-tab {
-  background: var(--bg-dark);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-btn);
-  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 12px;
   font-size: 0.78rem;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--label-secondary);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .terminal-tab:hover {
-  color: var(--text-primary);
+  color: var(--label);
 }
 
 .terminal-tab.active {
-  color: #ffffff;
-  background: var(--accent-gradient);
-  border-color: transparent;
+  color: var(--label);
+  background: var(--bg-elevated-2);
 }
 
 .console-box {
-  background: #14161b;
-  border: 1px solid var(--border-dark);
+  background: #141414;
+  border: 1px solid var(--separator);
   border-radius: var(--radius-card);
-  padding: 16px;
+  padding: 14px 16px;
   min-height: 300px;
   max-height: 50vh;
   overflow-y: auto;
-  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.8rem;
-  line-height: 1.6;
-  color: #ff8c00;
-  box-shadow:
-    inset 3px 3px 8px var(--shadow-dark),
-    inset -3px -3px 8px var(--shadow-light);
+  line-height: 1.5;
 }
 
 .console-placeholder {
-  color: var(--text-dim);
+  color: var(--label-tertiary);
   font-style: italic;
 }
 
 .console-box::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
 }
 
 .console-box::-webkit-scrollbar-thumb {
-  background: #272b34;
+  background: var(--separator-strong);
   border-radius: 4px;
+}
+
+/* --- LÍNEAS DE LOG --- */
+/* Cada línea lleva hora + icono (según el tipo de evento) + texto. Solo
+   "stdout" (la salida normal del proceso) no lleva icono, para no llenar
+   la terminal de marcas en cada línea como haría un emoji por delante. */
+.log-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--label-tertiary);
+  font-size: 0.72rem;
+  padding-top: 2px;
+}
+
+.log-icon,
+.log-icon-spacer {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  display: inline-block;
+}
+
+.log-text {
+  color: rgba(255, 255, 255, 0.82);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-icon-warn {
+  color: var(--orange);
+}
+.log-icon-error {
+  color: var(--red);
+}
+.log-icon-success {
+  color: var(--green);
+}
+.log-icon-action {
+  color: var(--teal);
+}
+.log-icon-muted {
+  color: var(--label-tertiary);
+}
+
+.log-stderr .log-text {
+  color: var(--orange);
+}
+.log-error .log-text {
+  color: var(--red);
+}
+.log-success .log-text {
+  color: var(--green);
+}
+.log-action .log-text {
+  color: var(--label-secondary);
+}
+.log-exit .log-text {
+  color: var(--label-tertiary);
+}
+
+/* --- TAREAS DE PROYECTO --- */
+.project-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--separator);
+}
+
+.task-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--control-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  padding: 5px 10px;
+}
+
+.task-chip .task-name {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--label);
+  white-space: nowrap;
+}
+
+.task-chip .task-command {
+  font-size: 0.74rem;
+  color: var(--teal);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-chip .btn-action {
+  padding: 3px 7px;
+  font-size: 0.72rem;
+}
+
+/* --- MODAL --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+
+.modal-box {
+  background: rgba(42, 42, 44, 0.92);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-window);
+  box-shadow: var(--shadow-modal);
+  padding: 22px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-box h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--label);
+  text-align: center;
+}
+
+.modal-sub {
+  font-size: 0.78rem;
+  color: var(--label-secondary);
+  text-align: center;
+  margin-top: -6px;
+}
+
+/* --- VARIABLES DE ENTORNO --- */
+.env-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.env-row {
+  display: flex;
+  gap: 6px;
+}
+
+.env-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- SELECTOR DE TAREAS DE UN GRUPO --- */
+.task-group-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.task-group-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--label);
+  cursor: pointer;
+}
+
+.task-group-pick input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+/* --- BOTONES DESHABILITADOS --- */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--control-bg);
+  color: var(--label-secondary);
 }
