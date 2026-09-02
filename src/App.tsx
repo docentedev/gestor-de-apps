@@ -131,6 +131,20 @@ export default function App() {
   const [logsByTab, setLogsByTab] = useState<Record<string, string[]>>({});
   const [activeTab, setActiveTab] = useState<string>(GENERAL);
 
+  // Proyectos con la vista completa desplegada (rutas, comandos, tareas,
+  // edición). Por defecto todos arrancan en vista mínima para que la lista
+  // ocupe menos espacio; se expande por proyecto según se necesite.
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+
+  const toggleProjectExpanded = (projId: string) => {
+    setExpandedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projId)) next.delete(projId);
+      else next.add(projId);
+      return next;
+    });
+  };
+
   const addLog = (tab: string, msg: string) => {
     setLogsByTab((prev) => ({
       ...prev,
@@ -238,6 +252,9 @@ export default function App() {
     setServiceFormFor(projId);
     setEditingServiceId(null);
     setServiceForm(emptyServiceForm);
+    // El formulario vive dentro de la vista completa, así que la despliega
+    // si el proyecto estaba en vista mínima.
+    setExpandedProjectIds((prev) => new Set(prev).add(projId));
   };
 
   const closeServiceForm = () => {
@@ -256,6 +273,7 @@ export default function App() {
       port: service.port,
       command: service.command,
     });
+    setExpandedProjectIds((prev) => new Set(prev).add(proj.id));
   };
 
   const saveService = (proj: Project) => {
@@ -536,6 +554,12 @@ export default function App() {
               <div className="project-group-header">
                 <span className="project-group-name">{proj.name}</span>
                 <div className="project-group-actions">
+                  <button
+                    className="btn btn-action btn-view-toggle"
+                    onClick={() => toggleProjectExpanded(proj.id)}
+                  >
+                    {expandedProjectIds.has(proj.id) ? "▾ Vista mínima" : "▸ Vista completa"}
+                  </button>
                   <button className="btn btn-action btn-run" onClick={() => runAllServices(proj)}>
                     ▶ Iniciar todo
                   </button>
@@ -578,7 +602,46 @@ export default function App() {
               </div>
 
               <div className="services-list">
-                {proj.services.map((service) => (
+                {!expandedProjectIds.has(proj.id) && (
+                  // Vista mínima: solo chips compactos por servicio (nombre,
+                  // puerto, iniciar/matar). Sin rutas, comandos ni tareas.
+                  <div className="services-mini-row">
+                    {proj.services.map((service) => (
+                      <div
+                        key={service.id}
+                        className="service-chip-mini"
+                        onClick={() => setActiveTab(service.id)}
+                        title={`${service.path} • ${service.command}`}
+                      >
+                        <span className="service-chip-name">{service.name}</span>
+                        <span className="service-chip-port">:{service.port}</span>
+                        <button
+                          className="btn btn-action btn-run"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            runService(service);
+                          }}
+                          title="Iniciar"
+                        >
+                          ▶
+                        </button>
+                        <button
+                          className="btn btn-action btn-kill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            killService(service);
+                          }}
+                          title="Matar puerto"
+                        >
+                          🛑
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {expandedProjectIds.has(proj.id) &&
+                  proj.services.map((service) => (
                   <div key={service.id} className="project-card">
                     <div className="project-main">
                       <div className="project-info">
@@ -718,16 +781,18 @@ export default function App() {
                   </div>
                 ))}
 
-                <button
-                  className="btn btn-action btn-add-service"
-                  onClick={() =>
-                    serviceFormFor === proj.id && !editingServiceId
-                      ? closeServiceForm()
-                      : openServiceForm(proj.id)
-                  }
-                >
-                  + Servicio (ej: Back)
-                </button>
+                {expandedProjectIds.has(proj.id) && (
+                  <button
+                    className="btn btn-action btn-add-service"
+                    onClick={() =>
+                      serviceFormFor === proj.id && !editingServiceId
+                        ? closeServiceForm()
+                        : openServiceForm(proj.id)
+                    }
+                  >
+                    + Servicio (ej: Back)
+                  </button>
+                )}
 
                 {serviceFormFor === proj.id && (
                   <div className="card service-form-card">

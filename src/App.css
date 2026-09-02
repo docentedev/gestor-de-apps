@@ -147,6 +147,58 @@ body,
   border-style: dashed;
 }
 
+.btn-view-toggle {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+/* --- VISTA MÍNIMA DE SERVICIOS --- */
+.services-mini-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.service-chip-mini {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-btn);
+  padding: 6px 10px;
+  cursor: pointer;
+  box-shadow:
+    3px 3px 7px var(--shadow-dark),
+    -3px -3px 7px var(--shadow-light);
+  transition: var(--transition-fast);
+}
+
+.service-chip-mini:hover {
+  box-shadow:
+    4px 4px 9px var(--shadow-dark),
+    -4px -4px 9px var(--shadow-light);
+}
+
+.service-chip-mini .service-chip-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.service-chip-mini .service-chip-port {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-family: monospace;
+}
+
+.service-chip-mini .btn-action {
+  padding: 3px 7px;
+  font-size: 0.72rem;
+}
+
 .project-card {
   padding: 18px 20px;
   display: flex;
