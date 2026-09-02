@@ -2,6 +2,22 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
+import {
+  IconAlertTriangle,
+  IconCheckCircle,
+  IconChevronDown,
+  IconChevronRight,
+  IconDot,
+  IconGlobe,
+  IconPencil,
+  IconPlay,
+  IconPlus,
+  IconStop,
+  IconStopCircle,
+  IconTerminal,
+  IconTrash,
+  IconXCircle,
+} from "./icons";
 import "./App.css";
 
 export interface Task {
@@ -105,6 +121,33 @@ function buildCommand(command: string, values: Record<string, string>): string {
 // servicios o tareas).
 const GENERAL = "_general";
 
+// Tipo de cada línea de log: decide qué icono y color usa en la terminal.
+// "stdout" no lleva icono (es la salida normal del proceso, sin marcar).
+type LogKind = "stdout" | "stderr" | "exit" | "error" | "success" | "action";
+
+interface LogEntry {
+  time: string;
+  kind: LogKind;
+  text: string;
+}
+
+function LogIcon({ kind }: { kind: LogKind }) {
+  switch (kind) {
+    case "stderr":
+      return <IconAlertTriangle className="log-icon log-icon-warn" />;
+    case "exit":
+      return <IconStopCircle className="log-icon log-icon-muted" />;
+    case "error":
+      return <IconXCircle className="log-icon log-icon-error" />;
+    case "success":
+      return <IconCheckCircle className="log-icon log-icon-success" />;
+    case "action":
+      return <IconDot className="log-icon log-icon-action" size={8} />;
+    default:
+      return <span className="log-icon-spacer" />;
+  }
+}
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([
     {
@@ -143,21 +186,25 @@ export default function App() {
     });
   };
 
-  const [logsByTab, setLogsByTab] = useState<Record<string, string[]>>({});
+  const [logsByTab, setLogsByTab] = useState<Record<string, LogEntry[]>>({});
   const [activeTab, setActiveTab] = useState<string>(GENERAL);
 
-  const addLog = (tab: string, msg: string) => {
+  const addLog = (tab: string, kind: LogKind, text: string) => {
     setLogsByTab((prev) => ({
       ...prev,
-      [tab]: [`[${new Date().toLocaleTimeString()}]${msg}`, ...(prev[tab] ?? [])],
+      [tab]: [
+        { time: new Date().toLocaleTimeString(), kind, text },
+        ...(prev[tab] ?? []),
+      ],
     }));
   };
 
   useEffect(() => {
     const unlisten = listen<ProcessOutput>("project-log", (event) => {
       const { id, stream, line } = event.payload;
-      const icon = stream === "stderr" ? "⚠️" : stream === "exit" ? "⏹" : "›";
-      addLog(id, ` ${icon} ${line}`);
+      const kind: LogKind =
+        stream === "stderr" ? "stderr" : stream === "exit" ? "exit" : stream === "error" ? "error" : "stdout";
+      addLog(id, kind, line);
     });
     return () => {
       unlisten.then((f) => f());
@@ -171,7 +218,7 @@ export default function App() {
       .then((saved) => {
         if (saved && saved.length > 0) setProjects(saved);
       })
-      .catch((err) => addLog(GENERAL, `❌ Error al cargar configuración: ${err}`))
+      .catch((err) => addLog(GENERAL, "error", `Error al cargar configuración: ${err}`))
       .finally(() => setLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -182,7 +229,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return;
     invoke("save_projects", { projects }).catch((err) =>
-      addLog(GENERAL, `❌ Error al guardar configuración: ${err}`),
+      addLog(GENERAL, "error", `Error al guardar configuración: ${err}`),
     );
   }, [projects, loaded]);
 
@@ -207,13 +254,13 @@ export default function App() {
         tasks: [],
       };
       setProjects((prev) => [...prev, { id: projectId, name, services: [service] }]);
-      addLog(GENERAL, ` ➕ Proyecto "${name}" agregado.`);
+      addLog(GENERAL, "action", `Proyecto "${name}" agregado.`);
       setModal(null);
     } else if (modal.kind === "editProject") {
       const { name, proj } = modal;
       if (!name) return;
       setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, name } : p)));
-      addLog(GENERAL, ` ✏️ Proyecto renombrado a "${name}".`);
+      addLog(GENERAL, "action", `Proyecto renombrado a "${name}".`);
       setModal(null);
     }
   };
@@ -237,9 +284,9 @@ export default function App() {
     for (const service of proj.services) {
       try {
         const res = await invoke<string>("kill_port", { port: service.port });
-        addLog(GENERAL, ` 🛑 Puerto ${service.port}: ${res}`);
+        addLog(GENERAL, "action", `Puerto ${service.port}: ${res}`);
       } catch (err) {
-        addLog(GENERAL, ` ❌ Error al liberar puerto ${service.port}: ${err}`);
+        addLog(GENERAL, "error", `Error al liberar puerto ${service.port}: ${err}`);
       }
     }
 
@@ -250,7 +297,7 @@ export default function App() {
       return rest;
     });
     if (proj.services.some((s) => s.id === activeTab)) setActiveTab(GENERAL);
-    addLog(GENERAL, ` 🗑 Proyecto "${proj.name}" eliminado.`);
+    addLog(GENERAL, "action", `Proyecto "${proj.name}" eliminado.`);
   };
 
   // --- Servicio (ruta/comando/puerto/URL + tareas) ---
@@ -288,7 +335,7 @@ export default function App() {
           p.id === proj.id ? { ...p, services: [...p.services, newService] } : p,
         ),
       );
-      addLog(GENERAL, ` ➕ Servicio "${newService.name}" agregado a ${proj.name}.`);
+      addLog(GENERAL, "action", `Servicio "${newService.name}" agregado a ${proj.name}.`);
       setModal(null);
     } else if (modal.kind === "editService") {
       const { proj, service, fields } = modal;
@@ -303,7 +350,7 @@ export default function App() {
             : p,
         ),
       );
-      addLog(GENERAL, ` ✏️ Servicio "${fields.name}" actualizado en ${proj.name}.`);
+      addLog(GENERAL, "action", `Servicio "${fields.name}" actualizado en ${proj.name}.`);
       setModal(null);
     }
   };
@@ -319,9 +366,9 @@ export default function App() {
   const deleteService = async (proj: Project, service: Service) => {
     try {
       const res = await invoke<string>("kill_port", { port: service.port });
-      addLog(GENERAL, ` 🛑 Puerto ${service.port}: ${res}`);
+      addLog(GENERAL, "action", `Puerto ${service.port}: ${res}`);
     } catch (err) {
-      addLog(GENERAL, ` ❌ Error al liberar puerto ${service.port}: ${err}`);
+      addLog(GENERAL, "error", `Error al liberar puerto ${service.port}: ${err}`);
     }
     setProjects((prev) =>
       prev.map((p) =>
@@ -333,7 +380,7 @@ export default function App() {
       return rest;
     });
     if (activeTab === service.id) setActiveTab(GENERAL);
-    addLog(GENERAL, ` 🗑 Servicio "${service.name}" eliminado de ${proj.name}.`);
+    addLog(GENERAL, "action", `Servicio "${service.name}" eliminado de ${proj.name}.`);
   };
 
   const runService = async (service: Service, opts: { switchTab?: boolean } = {}) => {
@@ -345,9 +392,9 @@ export default function App() {
         path: service.path,
         command: service.command,
       });
-      addLog(service.id, `▶ ${res}`);
+      addLog(service.id, "success", res);
     } catch (err) {
-      addLog(service.id, `❌ Error al iniciar: ${err}`);
+      addLog(service.id, "error", `Error al iniciar: ${err}`);
     }
   };
 
@@ -356,18 +403,18 @@ export default function App() {
     if (switchTab) setActiveTab(service.id);
     try {
       const res = await invoke<string>("kill_port", { port: service.port });
-      addLog(service.id, `🛑 Puerto ${service.port}:${res}`);
+      addLog(service.id, "action", `Puerto ${service.port}: ${res}`);
     } catch (err) {
-      addLog(service.id, `❌ Error al liberar puerto ${service.port}:${err}`);
+      addLog(service.id, "error", `Error al liberar puerto ${service.port}: ${err}`);
     }
   };
 
   const openService = async (service: Service) => {
     try {
       await invoke("open_browser_url", { url: service.url });
-      addLog(service.id, `🌐 Abriendo ${service.url}`);
+      addLog(service.id, "action", `Abriendo ${service.url}`);
     } catch (err) {
-      addLog(service.id, `❌ Error al abrir URL: ${err}`);
+      addLog(service.id, "error", `Error al abrir URL: ${err}`);
     }
   };
 
@@ -406,7 +453,7 @@ export default function App() {
           : p,
       ),
     );
-    addLog(GENERAL, ` ➕ Tarea "${newTask.name}" agregada a ${proj.name} · ${service.name}.`);
+    addLog(GENERAL, "action", `Tarea "${newTask.name}" agregada a ${proj.name} · ${service.name}.`);
     setModal(null);
   };
 
@@ -431,7 +478,7 @@ export default function App() {
           : p,
       ),
     );
-    addLog(GENERAL, ` 🗑 Tarea "${task.name}" eliminada de ${proj.name} · ${service.name}.`);
+    addLog(GENERAL, "action", `Tarea "${task.name}" eliminada de ${proj.name} · ${service.name}.`);
   };
 
   // Corre el comando final (ya con los parámetros sustituidos) reusando el
@@ -440,16 +487,16 @@ export default function App() {
   // tal como pide el uso "npm run test" o similar que empieza y acaba solo.
   const runTaskCommand = async (service: Service, task: Task, command: string) => {
     setActiveTab(service.id);
-    addLog(service.id, ` ▶ Tarea "${task.name}": ${command}`);
+    addLog(service.id, "action", `Tarea "${task.name}": ${command}`);
     try {
       const res = await invoke<string>("run_project_command", {
         id: service.id,
         path: service.path,
         command,
       });
-      addLog(service.id, `▶ ${res}`);
+      addLog(service.id, "success", res);
     } catch (err) {
-      addLog(service.id, `❌ Error al ejecutar tarea: ${err}`);
+      addLog(service.id, "error", `Error al ejecutar tarea: ${err}`);
     }
   };
 
@@ -582,7 +629,7 @@ export default function App() {
             )}
             <div className="form-actions">
               <button className="btn btn-save" onClick={submitProjectModal}>
-                {isCreate ? "+ Guardar Proyecto" : "💾 Guardar Cambios"}
+                Guardar
               </button>
               <button className="btn btn-cancel" onClick={() => setModal(null)}>
                 Cancelar
@@ -594,7 +641,6 @@ export default function App() {
 
       case "createService":
       case "editService": {
-        const isCreate = modal.kind === "createService";
         return (
           <>
             <h4>
@@ -668,7 +714,7 @@ export default function App() {
             </div>
             <div className="form-actions">
               <button className="btn btn-save" onClick={submitServiceModal}>
-                {isCreate ? "+ Guardar Servicio" : "💾 Guardar Cambios"}
+                Guardar
               </button>
               <button className="btn btn-cancel" onClick={() => setModal(null)}>
                 Cancelar
@@ -747,7 +793,7 @@ export default function App() {
             ))}
             <div className="form-actions">
               <button className="btn btn-save" onClick={submitParamsModal}>
-                ▶ Ejecutar
+                Ejecutar
               </button>
               <button className="btn btn-cancel" onClick={() => setModal(null)}>
                 Cancelar
@@ -766,7 +812,7 @@ export default function App() {
       <div className="header-section">
         <h2>Panel de Proyectos Locales</h2>
         <button className="btn btn-save" onClick={openCreateProject}>
-          + Nuevo Proyecto
+          <IconPlus /> Nuevo Proyecto
         </button>
       </div>
 
@@ -781,22 +827,31 @@ export default function App() {
                   className="btn btn-action btn-view-toggle"
                   onClick={() => toggleProjectExpanded(proj.id)}
                 >
-                  {expandedProjectIds.has(proj.id) ? "▾ Vista mínima" : "▸ Vista completa"}
+                  {expandedProjectIds.has(proj.id) ? (
+                    <>
+                      <IconChevronDown /> Vista mínima
+                    </>
+                  ) : (
+                    <>
+                      <IconChevronRight /> Vista completa
+                    </>
+                  )}
                 </button>
                 <button className="btn btn-action btn-run" onClick={() => runAllServices(proj)}>
-                  ▶ Iniciar todo
+                  <IconPlay /> Iniciar todo
                 </button>
                 <button className="btn btn-action btn-kill" onClick={() => killAllServices(proj)}>
-                  🛑 Matar todo
+                  <IconStop /> Matar todo
                 </button>
                 <button className="btn btn-action btn-edit" onClick={() => openEditProject(proj)}>
-                  ✏️ Renombrar
+                  <IconPencil /> Renombrar
                 </button>
                 <button
-                  className="btn btn-action btn-delete"
+                  className="btn btn-action btn-delete btn-icon-only"
                   onClick={() => askDeleteProject(proj)}
+                  title="Eliminar proyecto"
                 >
-                  🗑
+                  <IconTrash />
                 </button>
               </div>
             </div>
@@ -816,24 +871,24 @@ export default function App() {
                       <span className="service-chip-name">{service.name}</span>
                       <span className="service-chip-port">:{service.port}</span>
                       <button
-                        className="btn btn-action btn-run"
+                        className="btn btn-action btn-run btn-icon-only"
                         onClick={(e) => {
                           e.stopPropagation();
                           runService(service);
                         }}
                         title="Iniciar"
                       >
-                        ▶
+                        <IconPlay size={11} />
                       </button>
                       <button
-                        className="btn btn-action btn-kill"
+                        className="btn btn-action btn-kill btn-icon-only"
                         onClick={(e) => {
                           e.stopPropagation();
                           killService(service);
                         }}
                         title="Matar puerto"
                       >
-                        🛑
+                        <IconStop size={11} />
                       </button>
                     </div>
                   ))}
@@ -853,42 +908,51 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* Botones sin etiqueta (solo icono + tooltip): con 6
+                          acciones por servicio, el texto repetido sumaba
+                          ruido visual; el icono ya es suficientemente claro. */}
                       <div className="project-actions">
                         <button
-                          className="btn btn-action btn-run"
+                          className="btn btn-action btn-run btn-icon-only"
                           onClick={() => runService(service)}
+                          title="Iniciar"
                         >
-                          ▶ Iniciar
+                          <IconPlay />
                         </button>
                         <button
-                          className="btn btn-action btn-kill"
+                          className="btn btn-action btn-kill btn-icon-only"
                           onClick={() => killService(service)}
+                          title={`Matar puerto ${service.port}`}
                         >
-                          🛑 Matar {service.port}
+                          <IconStop />
                         </button>
                         <button
-                          className="btn btn-action btn-open"
+                          className="btn btn-action btn-open btn-icon-only"
                           onClick={() => openService(service)}
+                          title="Abrir en el navegador"
                         >
-                          🌐 Abrir
+                          <IconGlobe />
                         </button>
                         <button
-                          className="btn btn-action"
+                          className="btn btn-action btn-icon-only"
                           onClick={() => setActiveTab(service.id)}
+                          title="Ver terminal"
                         >
-                          🖥️ Terminal
+                          <IconTerminal />
                         </button>
                         <button
-                          className="btn btn-action btn-edit"
+                          className="btn btn-action btn-edit btn-icon-only"
                           onClick={() => openEditService(proj, service)}
+                          title="Editar servicio"
                         >
-                          ✏️ Editar
+                          <IconPencil />
                         </button>
                         <button
-                          className="btn btn-action btn-delete"
+                          className="btn btn-action btn-delete btn-icon-only"
                           onClick={() => askDeleteService(proj, service)}
+                          title="Eliminar servicio"
                         >
-                          🗑
+                          <IconTrash />
                         </button>
                       </div>
                     </div>
@@ -907,18 +971,18 @@ export default function App() {
                               {task.command}
                             </code>
                             <button
-                              className="btn btn-action btn-run"
+                              className="btn btn-action btn-run btn-icon-only"
                               onClick={() => handleRunTask(proj, service, task)}
                               title="Ejecutar tarea"
                             >
-                              ▶
+                              <IconPlay size={11} />
                             </button>
                             <button
-                              className="btn btn-action btn-delete"
+                              className="btn btn-action btn-delete btn-icon-only"
                               onClick={() => askDeleteTask(proj, service, task)}
                               title="Eliminar tarea"
                             >
-                              🗑
+                              <IconTrash size={11} />
                             </button>
                           </div>
                         ))}
@@ -926,7 +990,7 @@ export default function App() {
                           className="btn btn-action btn-add-task"
                           onClick={() => openCreateTask(proj, service)}
                         >
-                          + Tarea
+                          <IconPlus size={11} /> Tarea
                         </button>
                       </div>
                     </div>
@@ -938,7 +1002,7 @@ export default function App() {
                   className="btn btn-action btn-add-service"
                   onClick={() => openCreateService(proj)}
                 >
-                  + Servicio (ej: Back)
+                  <IconPlus size={11} /> Servicio (ej: Back)
                 </button>
               )}
             </div>
@@ -974,16 +1038,23 @@ export default function App() {
               Sin actividad en esta terminal todavía...
             </span>
           ) : (
-            (logsByTab[activeTab] ?? []).map((log, i) => <div key={i}>{log}</div>)
+            (logsByTab[activeTab] ?? []).map((entry, i) => (
+              <div key={i} className={`log-line log-${entry.kind}`}>
+                <span className="log-time">{entry.time}</span>
+                <LogIcon kind={entry.kind} />
+                <span className="log-text">{entry.text}</span>
+              </div>
+            ))
           )}
         </div>
       </div>
 
-      {/* Modal único: agrupa formularios de creación/edición y
-          confirmaciones de cambios/eliminación. No usamos window.prompt ni
-          window.confirm porque WKWebView (macOS) no los implementa de forma
-          confiable: la llamada devuelve un valor por defecto al instante sin
-          mostrar nada, así que el flujo nunca llega a completarse. */}
+      {/* Modal único: agrupa formularios de creación/edición. Las
+          confirmaciones de borrado usan ask() (alerta nativa del sistema)
+          en vez de este modal. No usamos window.prompt porque WKWebView
+          (macOS) no lo implementa de forma confiable: la llamada devuelve
+          un valor por defecto al instante sin mostrar nada, así que el
+          flujo nunca llega a completarse. */}
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>

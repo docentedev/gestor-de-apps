@@ -28,6 +28,7 @@
 
   --green: #30d158;
   --teal: #64d2ff;
+  --orange: #ff9f0a;
 
   --radius-window: 12px;
   --radius-card: 10px;
@@ -342,6 +343,25 @@ body,
   transform: scale(0.97);
 }
 
+.btn svg {
+  flex-shrink: 0;
+}
+
+/* Botones sin etiqueta de texto (solo icono + tooltip vía title): mismo
+   padding en los cuatro lados para que quede cuadrado, no rectangular. */
+.btn-icon-only {
+  padding: 6px;
+}
+
+.project-actions .btn-icon-only {
+  padding: 5px;
+}
+
+.service-chip-mini .btn-icon-only,
+.task-chip .btn-icon-only {
+  padding: 3px;
+}
+
 .btn-save {
   background: var(--accent);
   border-color: var(--accent);
@@ -457,10 +477,12 @@ body,
   min-height: 300px;
   max-height: 50vh;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.8rem;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
 }
 
 .console-placeholder {
@@ -475,6 +497,70 @@ body,
 .console-box::-webkit-scrollbar-thumb {
   background: var(--separator-strong);
   border-radius: 4px;
+}
+
+/* --- LÍNEAS DE LOG --- */
+/* Cada línea lleva hora + icono (según el tipo de evento) + texto. Solo
+   "stdout" (la salida normal del proceso) no lleva icono, para no llenar
+   la terminal de marcas en cada línea como haría un emoji por delante. */
+.log-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--label-tertiary);
+  font-size: 0.72rem;
+  padding-top: 2px;
+}
+
+.log-icon,
+.log-icon-spacer {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  display: inline-block;
+}
+
+.log-text {
+  color: rgba(255, 255, 255, 0.82);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-icon-warn {
+  color: var(--orange);
+}
+.log-icon-error {
+  color: var(--red);
+}
+.log-icon-success {
+  color: var(--green);
+}
+.log-icon-action {
+  color: var(--teal);
+}
+.log-icon-muted {
+  color: var(--label-tertiary);
+}
+
+.log-stderr .log-text {
+  color: var(--orange);
+}
+.log-error .log-text {
+  color: var(--red);
+}
+.log-success .log-text {
+  color: var(--green);
+}
+.log-action .log-text {
+  color: var(--label-secondary);
+}
+.log-exit .log-text {
+  color: var(--label-tertiary);
 }
 
 /* --- TAREAS DE PROYECTO --- */
