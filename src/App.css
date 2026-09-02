@@ -105,8 +105,14 @@ body,
   gap: 14px;
 }
 
+.project-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 @media (min-width: 768px) {
-  .project-card {
+  .project-main {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -353,4 +359,102 @@ body,
 .console-box::-webkit-scrollbar-thumb {
   background: #272b34;
   border-radius: 4px;
+}
+
+/* --- TAREAS DE PROYECTO --- */
+.project-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.task-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #181a20;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-btn);
+  padding: 6px 10px;
+}
+
+.task-chip .task-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.task-chip .task-command {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-chip .btn-action {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+
+.btn-add-task {
+  background: transparent;
+  border: 1px dashed var(--border-dark);
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.task-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.task-form .form-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+/* --- MODAL DE PARÁMETROS --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+
+.modal-box {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-card);
+  box-shadow:
+    5px 5px 10px var(--shadow-dark),
+    -4px -4px 10px var(--shadow-light);
+  padding: 22px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-box h4 {
+  font-size: 0.95rem;
+  color: var(--text-primary);
 }

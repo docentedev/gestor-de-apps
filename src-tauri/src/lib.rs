@@ -13,6 +13,13 @@ struct ProcessOutput {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct TaskConfig {
+    id: String,
+    name: String,
+    command: String,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct ProjectConfig {
     id: String,
     name: String,
@@ -20,6 +27,10 @@ struct ProjectConfig {
     url: String,
     port: u16,
     command: String,
+    // `default` para no romper la carga de projects.json guardados antes de
+    // que existiera este campo (quedan con una lista de tareas vacía).
+    #[serde(default)]
+    tasks: Vec<TaskConfig>,
 }
 
 // Ruta al archivo de configuración persistente (JSON) en el directorio de

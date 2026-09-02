@@ -3,6 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
+export interface Task {
+  id: string;
+  name: string;
+  command: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -10,6 +16,7 @@ export interface Project {
   url: string;
   port: number;
   command: string;
+  tasks: Task[];
 }
 
 interface ProcessOutput {
@@ -18,13 +25,44 @@ interface ProcessOutput {
   line: string;
 }
 
-const emptyForm: Omit<Project, "id"> = {
+// Petición de parámetros pendiente: se muestra un modal para completar los
+// placeholders {{param}} de una tarea antes de ejecutarla.
+interface ParamRequest {
+  proj: Project;
+  task: Task;
+  params: string[];
+  values: Record<string, string>;
+}
+
+const emptyForm: Omit<Project, "id" | "tasks"> = {
   name: "",
   path: "",
   url: "http://localhost:3000",
   port: 3000,
   command: "pnpm run start:dev",
 };
+
+const emptyTaskForm = { name: "", command: "" };
+
+// Detecta placeholders {{param}} dentro de un comando de tarea.
+function extractParams(command: string): string[] {
+  const matches = [...command.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)];
+  return Array.from(new Set(matches.map((m) => m[1])));
+}
+
+// Sustituye los placeholders por los valores ingresados, citándolos para
+// que zsh los trate como un solo argumento aunque contengan espacios o
+// comillas (ej: git commit -m "{{mensaje}}" -> git commit -m "Mensaje con 'algo'").
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildCommand(command: string, values: Record<string, string>): string {
+  return command.replace(
+    /\{\{\s*([^}]+?)\s*\}\}/g,
+    (_match, name) => shellQuote(values[name] ?? ""),
+  );
+}
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([
@@ -35,12 +73,20 @@ export default function App() {
       url: "http://localhost:3000",
       port: 3000,
       command: "pnpm run start:dev",
+      tasks: [],
     },
   ]);
 
-  const [form, setForm] = useState<Omit<Project, "id">>(emptyForm);
+  const [form, setForm] = useState<Omit<Project, "id" | "tasks">>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+
+  // Formulario inline para agregar una tarea al proyecto cuyo id coincide.
+  const [taskFormFor, setTaskFormFor] = useState<string | null>(null);
+  const [taskForm, setTaskForm] = useState(emptyTaskForm);
+
+  // Modal de parámetros pendiente de completar antes de ejecutar una tarea.
+  const [paramRequest, setParamRequest] = useState<ParamRequest | null>(null);
 
   // Id del proyecto pendiente de confirmación de borrado. No usamos
   // window.confirm porque WKWebView (macOS) no implementa los diálogos JS
@@ -104,12 +150,17 @@ export default function App() {
     if (!form.name || !form.path) return;
 
     if (editingId) {
+      // Se mezcla sobre el proyecto existente (no sobre `form`) para no
+      // perder las tareas ya definidas, que el formulario principal no toca.
       setProjects((prev) =>
-        prev.map((p) => (p.id === editingId ? { ...form, id: editingId } : p)),
+        prev.map((p) => (p.id === editingId ? { ...p, ...form } : p)),
       );
       addLog(GENERAL, ` ✏️ Proyecto ${form.name} actualizado.`);
     } else {
-      setProjects((prev) => [...prev, { ...form, id: Date.now().toString() }]);
+      setProjects((prev) => [
+        ...prev,
+        { ...form, id: Date.now().toString(), tasks: [] },
+      ]);
       addLog(GENERAL, ` ➕ Proyecto ${form.name} agregado.`);
     }
     resetForm();
@@ -182,6 +233,85 @@ export default function App() {
     }
   };
 
+  const openTaskForm = (projId: string) => {
+    setTaskFormFor(projId);
+    setTaskForm(emptyTaskForm);
+  };
+
+  const closeTaskForm = () => {
+    setTaskFormFor(null);
+    setTaskForm(emptyTaskForm);
+  };
+
+  const saveTask = (proj: Project) => {
+    if (!taskForm.name || !taskForm.command) return;
+    const newTask: Task = {
+      id: Date.now().toString(),
+      name: taskForm.name,
+      command: taskForm.command,
+    };
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === proj.id ? { ...p, tasks: [...p.tasks, newTask] } : p,
+      ),
+    );
+    addLog(GENERAL, ` ➕ Tarea "${newTask.name}" agregada a ${proj.name}.`);
+    closeTaskForm();
+  };
+
+  const deleteTask = (proj: Project, task: Task) => {
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === proj.id
+          ? { ...p, tasks: p.tasks.filter((t) => t.id !== task.id) }
+          : p,
+      ),
+    );
+    addLog(GENERAL, ` 🗑 Tarea "${task.name}" eliminada de ${proj.name}.`);
+  };
+
+  // Corre el comando final (ya con los parámetros sustituidos) reusando el
+  // mismo backend que el comando principal: transmite stdout/stderr en vivo
+  // y avisa cuando el proceso termina (evento "exit"), tal como pide el uso
+  // "npm run test" o similar que empieza y acaba solo.
+  const runTaskCommand = async (proj: Project, task: Task, command: string) => {
+    setActiveTab(proj.id);
+    addLog(proj.id, ` ▶ Tarea "${task.name}": ${command}`);
+    try {
+      const res = await invoke<string>("run_project_command", {
+        id: proj.id,
+        path: proj.path,
+        command,
+      });
+      addLog(proj.id, `▶ ${res}`);
+    } catch (err) {
+      addLog(proj.id, `❌ Error al ejecutar tarea: ${err}`);
+    }
+  };
+
+  const handleRunTask = (proj: Project, task: Task) => {
+    const params = extractParams(task.command);
+    if (params.length === 0) {
+      runTaskCommand(proj, task, task.command);
+      return;
+    }
+    // Comando con placeholders (ej: git commit -m "{{mensaje}}"): se pide
+    // el valor de cada uno antes de ejecutar.
+    setParamRequest({
+      proj,
+      task,
+      params,
+      values: Object.fromEntries(params.map((p) => [p, ""])),
+    });
+  };
+
+  const submitParamRequest = () => {
+    if (!paramRequest) return;
+    const command = buildCommand(paramRequest.task.command, paramRequest.values);
+    runTaskCommand(paramRequest.proj, paramRequest.task, command);
+    setParamRequest(null);
+  };
+
   return (
     <div className="app-container">
       <div className="header-section">
@@ -246,68 +376,141 @@ export default function App() {
         <div className="col-8 projects-column">
           {projects.map((proj) => (
             <div key={proj.id} className="project-card">
-              <div className="project-info">
-                <span className="project-name">{proj.name}</span>
-                <span className="project-path">{proj.path}</span>
-                <div className="project-details">
-                  <code>{proj.command}</code> • Puerto:{" "}
-                  <strong>{proj.port}</strong>
+              <div className="project-main">
+                <div className="project-info">
+                  <span className="project-name">{proj.name}</span>
+                  <span className="project-path">{proj.path}</span>
+                  <div className="project-details">
+                    <code>{proj.command}</code> • Puerto:{" "}
+                    <strong>{proj.port}</strong>
+                  </div>
+                </div>
+
+                <div className="project-actions">
+                  <button
+                    className="btn btn-action btn-run"
+                    onClick={() => handleRun(proj)}
+                  >
+                    ▶ Iniciar
+                  </button>
+                  <button
+                    className="btn btn-action btn-kill"
+                    onClick={() => handleKill(proj)}
+                  >
+                    🛑 Matar {proj.port}
+                  </button>
+                  <button
+                    className="btn btn-action btn-open"
+                    onClick={() => handleOpen(proj)}
+                  >
+                    🌐 Abrir
+                  </button>
+                  <button
+                    className="btn btn-action"
+                    onClick={() => setActiveTab(proj.id)}
+                  >
+                    🖥️ Terminal
+                  </button>
+                  <button
+                    className="btn btn-action btn-edit"
+                    onClick={() => startEdit(proj)}
+                  >
+                    ✏️ Editar
+                  </button>
+                  {confirmDeleteId === proj.id ? (
+                    <>
+                      <button
+                        className="btn btn-action btn-delete"
+                        onClick={() => deleteProject(proj)}
+                      >
+                        ✅ Confirmar
+                      </button>
+                      <button
+                        className="btn btn-action"
+                        onClick={() => setConfirmDeleteId(null)}
+                      >
+                        ✖ Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btn btn-action btn-delete"
+                      onClick={() => setConfirmDeleteId(proj.id)}
+                    >
+                      🗑
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="project-actions">
-                <button
-                  className="btn btn-action btn-run"
-                  onClick={() => handleRun(proj)}
-                >
-                  ▶ Iniciar
-                </button>
-                <button
-                  className="btn btn-action btn-kill"
-                  onClick={() => handleKill(proj)}
-                >
-                  🛑 Matar {proj.port}
-                </button>
-                <button
-                  className="btn btn-action btn-open"
-                  onClick={() => handleOpen(proj)}
-                >
-                  🌐 Abrir
-                </button>
-                <button
-                  className="btn btn-action"
-                  onClick={() => setActiveTab(proj.id)}
-                >
-                  🖥️ Terminal
-                </button>
-                <button
-                  className="btn btn-action btn-edit"
-                  onClick={() => startEdit(proj)}
-                >
-                  ✏️ Editar
-                </button>
-                {confirmDeleteId === proj.id ? (
-                  <>
-                    <button
-                      className="btn btn-action btn-delete"
-                      onClick={() => deleteProject(proj)}
-                    >
-                      ✅ Confirmar
-                    </button>
-                    <button
-                      className="btn btn-action"
-                      onClick={() => setConfirmDeleteId(null)}
-                    >
-                      ✖ Cancelar
-                    </button>
-                  </>
-                ) : (
+              {/* Tareas puntuales del proyecto: comandos que inician y
+                  terminan solos (ej: npm run test, git commit -m "{{mensaje}}").
+                  Si el comando trae placeholders {{param}}, al ejecutar se
+                  pide el valor antes de correrlo. */}
+              <div className="project-tasks">
+                <div className="task-list">
+                  {proj.tasks.map((task) => (
+                    <div key={task.id} className="task-chip">
+                      <span className="task-name">{task.name}</span>
+                      <code className="task-command" title={task.command}>
+                        {task.command}
+                      </code>
+                      <button
+                        className="btn btn-action btn-run"
+                        onClick={() => handleRunTask(proj, task)}
+                        title="Ejecutar tarea"
+                      >
+                        ▶
+                      </button>
+                      <button
+                        className="btn btn-action btn-delete"
+                        onClick={() => deleteTask(proj, task)}
+                        title="Eliminar tarea"
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
                   <button
-                    className="btn btn-action btn-delete"
-                    onClick={() => setConfirmDeleteId(proj.id)}
+                    className="btn btn-action btn-add-task"
+                    onClick={() =>
+                      taskFormFor === proj.id
+                        ? closeTaskForm()
+                        : openTaskForm(proj.id)
+                    }
                   >
-                    🗑
+                    + Tarea
                   </button>
+                </div>
+
+                {taskFormFor === proj.id && (
+                  <div className="task-form">
+                    <input
+                      className="form-input"
+                      placeholder="Nombre (ej: Test)"
+                      value={taskForm.name}
+                      onChange={(e) =>
+                        setTaskForm({ ...taskForm, name: e.target.value })
+                      }
+                    />
+                    <input
+                      className="form-input"
+                      placeholder='Comando (ej: npm run test, o git commit -m "{{mensaje}}")'
+                      value={taskForm.command}
+                      onChange={(e) =>
+                        setTaskForm({ ...taskForm, command: e.target.value })
+                      }
+                    />
+                    <button
+                      className="btn btn-save"
+                      onClick={() => saveTask(proj)}
+                    >
+                      Guardar
+                    </button>
+                    <button className="btn btn-cancel" onClick={closeTaskForm}>
+                      Cancelar
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -345,6 +548,49 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Modal de parámetros: se muestra cuando la tarea a ejecutar tiene
+          placeholders {{param}} pendientes de completar. No usamos
+          window.prompt porque WKWebView (macOS) tampoco lo implementa de
+          forma confiable, igual que window.confirm (ver comentario arriba). */}
+      {paramRequest && (
+        <div className="modal-overlay" onClick={() => setParamRequest(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h4>Parámetros para "{paramRequest.task.name}"</h4>
+            {paramRequest.params.map((p, i) => (
+              <input
+                key={p}
+                className="form-input"
+                placeholder={p}
+                value={paramRequest.values[p]}
+                autoFocus={i === 0}
+                onChange={(e) =>
+                  setParamRequest((prev) =>
+                    prev
+                      ? { ...prev, values: { ...prev.values, [p]: e.target.value } }
+                      : prev,
+                  )
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitParamRequest();
+                  if (e.key === "Escape") setParamRequest(null);
+                }}
+              />
+            ))}
+            <div className="form-actions">
+              <button className="btn btn-save" onClick={submitParamRequest}>
+                ▶ Ejecutar
+              </button>
+              <button
+                className="btn btn-cancel"
+                onClick={() => setParamRequest(null)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
