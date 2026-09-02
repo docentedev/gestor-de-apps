@@ -61,7 +61,7 @@ body,
 
 .app-container {
   margin: 0 auto;
-  max-width: 1500px;
+  max-width: 100%;
   padding: 28px 24px;
   display: flex;
   flex-direction: column;
@@ -101,6 +101,40 @@ body,
   gap: 12px;
 }
 
+/* Contenedor de proyectos+terminal. Mobile-first: apilado en el orden del
+   DOM (proyectos con sus tareas primero, terminal debajo) sin tocar
+   `order`, así el layout chico no depende de que la media query cargue. */
+.main-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Pantalla grande: grid de dos columnas con la terminal fija a la
+   izquierda (para seguir la salida en vivo mientras se gestionan
+   proyectos/tareas) y la lista de proyectos a la derecha. `order: -1` en
+   la terminal la manda a la primera celda del grid sin reordenar el DOM,
+   así el lector de pantalla y la vista chica siguen viendo "proyectos
+   primero". */
+@media (min-width: 1080px) {
+  .main-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 400px) 1fr;
+    align-items: start;
+    gap: 28px;
+  }
+
+  .main-layout > .console-section {
+    order: -1;
+    position: sticky;
+    top: 20px;
+  }
+
+  .main-layout > .console-section .console-box {
+    max-height: calc(100vh - 180px);
+  }
+}
+
 .projects-column {
   display: flex;
   flex-direction: column;
@@ -108,10 +142,18 @@ body,
 }
 
 /* --- GRUPO (PROYECTO) --- */
+/* El grupo entero (header + servicios) vive dentro de su propia superficie,
+   apenas más clara que el fondo: separa un proyecto del siguiente en la
+   lista y le da a los chips/cards de servicio (que sí usan --bg-elevated,
+   más saturado) algo contra qué destacar. */
 .project-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
 }
 
 .project-group-header {
@@ -120,7 +162,6 @@ body,
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 0 2px;
 }
 
 .project-group-name {
@@ -140,8 +181,6 @@ body,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-left: 16px;
-  border-left: 1px solid var(--separator);
 }
 
 .btn-add-service,
@@ -182,22 +221,21 @@ body,
 .service-chip-mini {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: var(--control-bg);
+  gap: 8px;
+  background: var(--bg-elevated-2);
   border: 1px solid var(--separator);
   border-radius: 999px;
-  padding: 5px 6px 5px 12px;
+  padding: 6px 6px 6px 14px;
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .service-chip-mini:hover {
-  background: var(--control-bg-hover);
   border-color: var(--separator-strong);
 }
 
 .service-chip-mini .service-chip-name {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--label);
 }
@@ -209,9 +247,19 @@ body,
 }
 
 .service-chip-mini .btn-action {
-  padding: 2px 7px;
-  font-size: 0.72rem;
   border-radius: 999px;
+}
+
+/* Los botones de los chips comparten fondo con la píldora que los
+   contiene; sin un tono propio quedan casi invisibles en reposo (solo se
+   notaban al pasar el mouse). Un fondo más oscuro los separa del chip. */
+.service-chip-mini .btn-icon-only {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: transparent;
+}
+
+.service-chip-mini .btn-icon-only:hover {
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .project-card {
@@ -242,9 +290,27 @@ body,
 }
 
 .project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--label);
+}
+
+/* Punto de corriendo/detenido. El halo (box-shadow) en el estado activo es
+   lo que lo hace leerse como "vivo" y no solo como una etiqueta de color. */
+.status-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.status-dot.running {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(48, 209, 88, 0.25);
 }
 
 .project-path {
@@ -425,7 +491,26 @@ body,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 4px;
+}
+
+.console-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.btn-clear-log {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--label-tertiary);
+}
+
+.btn-clear-log:hover {
+  color: var(--label-secondary);
+  background: transparent;
+  box-shadow: none;
 }
 
 .console-section h4 {
@@ -649,4 +734,55 @@ body,
   color: var(--label-secondary);
   text-align: center;
   margin-top: -6px;
+}
+
+/* --- VARIABLES DE ENTORNO --- */
+.env-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.env-row {
+  display: flex;
+  gap: 6px;
+}
+
+.env-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- SELECTOR DE TAREAS DE UN GRUPO --- */
+.task-group-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.task-group-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--label);
+  cursor: pointer;
+}
+
+.task-group-pick input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+/* --- BOTONES DESHABILITADOS --- */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--control-bg);
+  color: var(--label-secondary);
 }

@@ -1,15 +1,41 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::thread;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::menu::{IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Emitter, Manager, Wry};
+
+// Registro en memoria de los procesos que la app lanzó (id de servicio o de
+// una corrida de tarea -> pid del shell que lo ejecuta). Solo se usa para
+// poder matar por PID a las tareas puntuales, que no tienen puerto propio
+// (los servicios se siguen matando por puerto, vía kill_port).
+type ProcessRegistry = Mutex<HashMap<String, u32>>;
+
+const TRAY_ID: &str = "main-tray";
 
 #[derive(Clone, serde::Serialize)]
 struct ProcessOutput {
     id: String,
     stream: String, // "stdout" | "stderr" | "exit" | "error"
     line: String,
+    // Código de salida del proceso; solo viene poblado en el evento "exit".
+    // Lo usan los grupos de tareas para saber si un paso falló y hay que
+    // detener el resto de la secuencia.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<i32>,
+}
+
+// Variable de entorno definida por el usuario para un servicio o tarea.
+// Vive como lista (no como mapa) porque así se edita más fácil en un
+// formulario (permite una fila con la clave vacía a medio completar).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct EnvVarConfig {
+    key: String,
+    value: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -17,6 +43,20 @@ struct TaskConfig {
     id: String,
     name: String,
     command: String,
+    #[serde(default)]
+    env: Vec<EnvVarConfig>,
+}
+
+// Grupo de tareas ya existentes del mismo servicio, para correrlas en
+// secuencia con un solo botón (se detiene si alguna termina con código de
+// salida distinto de cero). Guarda solo los ids; si una tarea referenciada
+// se borra después, el frontend simplemente la salta al correr el grupo.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct TaskGroupConfig {
+    id: String,
+    name: String,
+    #[serde(rename = "taskIds")]
+    task_ids: Vec<String>,
 }
 
 // Un proyecto ahora agrupa uno o más servicios (ej: Front y Back de la misma
@@ -32,6 +72,10 @@ struct ServiceConfig {
     command: String,
     #[serde(default)]
     tasks: Vec<TaskConfig>,
+    #[serde(default)]
+    env: Vec<EnvVarConfig>,
+    #[serde(default, rename = "taskGroups")]
+    task_groups: Vec<TaskGroupConfig>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -111,6 +155,42 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// Indica si algo está escuchando en el puerto, sin matar nada. Se usa para
+// pintar el indicador de corriendo/detenido de cada servicio.
+#[tauri::command]
+fn is_port_in_use(port: u16) -> Result<bool, String> {
+    let output = Command::new("zsh")
+        .arg("-c")
+        .arg(format!("lsof -ti :{} -sTCP:LISTEN", port))
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(!output.stdout.is_empty())
+}
+
+// Mata por PID un proceso lanzado por run_project_command, buscándolo en el
+// registro en memoria. Pensado para tareas puntuales (npm run test, etc.)
+// que no tienen un puerto propio del que valerse para matarlas; los
+// servicios siguen usando kill_port. Si el proceso ya terminó (o el id no
+// está registrado), no es un error: simplemente no había nada que matar.
+#[tauri::command]
+fn kill_process(id: String, app: AppHandle) -> Result<String, String> {
+    let registry = app.state::<ProcessRegistry>();
+    let mut guard = registry.lock().map_err(|e| e.to_string())?;
+    let pid = guard.remove(&id);
+    drop(guard);
+    match pid {
+        Some(pid) => {
+            Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+                .map_err(|e| e.to_string())?;
+            Ok(format!("Proceso {} detenido", pid))
+        }
+        None => Ok("El proceso ya había terminado".to_string()),
+    }
+}
+
 // Mata el proceso escuchando en el puerto sin fallar si el puerto ya está libre
 #[tauri::command]
 fn kill_port(port: u16) -> Result<String, String> {
@@ -157,6 +237,14 @@ fn run_project_command(
         .spawn()
         .map_err(|e| format!("Error al iniciar proceso: {}", e))?;
 
+    {
+        let registry = app.state::<ProcessRegistry>();
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(id.clone(), child.id());
+    }
+
     if let Some(stdout) = child.stdout.take() {
         let app_handle = app.clone();
         let id_clone = id.clone();
@@ -164,7 +252,7 @@ fn run_project_command(
             for line in BufReader::new(stdout).lines().flatten() {
                 let _ = app_handle.emit(
                     "project-log",
-                    ProcessOutput { id: id_clone.clone(), stream: "stdout".into(), line },
+                    ProcessOutput { id: id_clone.clone(), stream: "stdout".into(), line, code: None },
                 );
             }
         });
@@ -177,26 +265,89 @@ fn run_project_command(
             for line in BufReader::new(stderr).lines().flatten() {
                 let _ = app_handle.emit(
                     "project-log",
-                    ProcessOutput { id: id_clone.clone(), stream: "stderr".into(), line },
+                    ProcessOutput { id: id_clone.clone(), stream: "stderr".into(), line, code: None },
                 );
             }
         });
     }
 
     thread::spawn(move || {
-        if let Ok(status) = child.wait() {
+        let status = child.wait();
+        let registry = app.state::<ProcessRegistry>();
+        let mut guard = registry.lock().unwrap();
+        guard.remove(&id);
+        drop(guard);
+        if let Ok(status) = status {
             let _ = app.emit(
                 "project-log",
                 ProcessOutput {
                     id,
                     stream: "exit".into(),
                     line: format!("Proceso finalizado (código {:?})", status.code()),
+                    code: status.code(),
                 },
             );
         }
     });
 
     Ok(format!("Ejecutando '{}' en {}", command, path))
+}
+
+#[derive(serde::Deserialize)]
+struct TrayServiceInfo {
+    id: String,
+    label: String,
+    running: bool,
+}
+
+// Reconstruye el menú del ícono de bandeja con la lista de servicios y su
+// estado actual (● corriendo / ○ detenido). El frontend es dueño de esa
+// información (proyectos + polling de puertos), así que la empuja cada vez
+// que cambia en vez de que Rust intente rastrearla por su cuenta.
+#[tauri::command]
+fn update_tray_menu(app: AppHandle, services: Vec<TrayServiceInfo>) -> Result<(), String> {
+    let tray = app.tray_by_id(TRAY_ID).ok_or("No se encontró el ícono de bandeja")?;
+
+    let show_item = MenuItemBuilder::with_id("show-window", "Mostrar ventana")
+        .build(&app)
+        .map_err(|e| e.to_string())?;
+
+    let mut items: Vec<Box<dyn IsMenuItem<Wry>>> = vec![Box::new(show_item)];
+    items.push(Box::new(
+        PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?,
+    ));
+
+    if services.is_empty() {
+        let empty_item = MenuItemBuilder::with_id("no-services", "Sin servicios")
+            .enabled(false)
+            .build(&app)
+            .map_err(|e| e.to_string())?;
+        items.push(Box::new(empty_item));
+    } else {
+        for service in &services {
+            let dot = if service.running { "●" } else { "○" };
+            let item = MenuItemBuilder::with_id(format!("svc:{}", service.id), format!("{} {}", dot, service.label))
+                .build(&app)
+                .map_err(|e| e.to_string())?;
+            items.push(Box::new(item));
+        }
+    }
+
+    items.push(Box::new(
+        PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?,
+    ));
+    let quit_item = MenuItemBuilder::with_id("quit", "Salir")
+        .build(&app)
+        .map_err(|e| e.to_string())?;
+    items.push(Box::new(quit_item));
+
+    let refs: Vec<&dyn IsMenuItem<Wry>> = items.iter().map(|item| item.as_ref()).collect();
+    let menu = MenuBuilder::new(&app)
+        .items(&refs)
+        .build()
+        .map_err(|e| e.to_string())?;
+    tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // Abre la URL local en el navegador por defecto
@@ -215,13 +366,61 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(ProcessRegistry::default())
+        .setup(|app| {
+            // Ícono de bandeja: estado rápido de los servicios y acceso sin
+            // tener que abrir la ventana completa. El menú arranca vacío
+            // (solo Mostrar ventana / Salir); el frontend lo puebla con los
+            // servicios reales apenas carga, vía update_tray_menu.
+            let show_item = MenuItemBuilder::with_id("show-window", "Mostrar ventana").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
+            let menu = MenuBuilder::new(app).items(&[&show_item, &quit_item]).build()?;
+
+            // Si por lo que sea no hay ícono default (no debería pasar, dado
+            // que tauri.conf.json declara uno), se salta la bandeja en vez
+            // de hacer panic y tirar abajo toda la app al arrancar.
+            if let Some(icon) = app.default_window_icon().cloned() {
+                TrayIconBuilder::with_id(TRAY_ID)
+                    .icon(icon)
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "show-window" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        // Pasa por el mismo cierre de ventana que el botón
+                        // rojo: el frontend intercepta ese cierre para matar
+                        // todo lo que la app lanzó antes de dejarla cerrar
+                        // de verdad.
+                        "quit" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.close();
+                            }
+                        }
+                        id => {
+                            if let Some(service_id) = id.strip_prefix("svc:") {
+                                let _ = app.emit("tray-toggle-service", service_id.to_string());
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             kill_port,
+            kill_process,
+            is_port_in_use,
             run_project_command,
             open_browser_url,
             load_projects,
-            save_projects
+            save_projects,
+            update_tray_menu
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
