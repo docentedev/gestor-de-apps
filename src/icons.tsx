@@ -214,3 +214,36 @@ export function IconStopCircle({ className, size = 13 }: IconProps) {
     </svg>
   );
 }
+
+export function IconFolder({ className, size = 16 }: IconProps) {
+  return (
+    <svg
+      {...box(size)}
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  );
+}
+
+export function IconCpu({ className, size = 16 }: IconProps) {
+  return (
+    <svg
+      {...box(size)}
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+    </svg>
+  );
+}

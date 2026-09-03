@@ -106,7 +106,9 @@ fn projects_file_path(app: &AppHandle) -> Result<PathBuf, String> {
 fn migrate_projects_value(mut value: serde_json::Value) -> serde_json::Value {
     if let serde_json::Value::Array(projects) = &mut value {
         for project in projects {
-            let Some(obj) = project.as_object_mut() else { continue };
+            let Some(obj) = project.as_object_mut() else {
+                continue;
+            };
             let has_services = matches!(obj.get("services"), Some(serde_json::Value::Array(_)));
             if has_services || !obj.contains_key("path") {
                 continue;
@@ -125,7 +127,10 @@ fn migrate_projects_value(mut value: serde_json::Value) -> serde_json::Value {
                 "command": obj.remove("command").unwrap_or(serde_json::Value::String(String::new())),
                 "tasks": obj.remove("tasks").unwrap_or(serde_json::Value::Array(vec![])),
             });
-            obj.insert("services".to_string(), serde_json::Value::Array(vec![service]));
+            obj.insert(
+                "services".to_string(),
+                serde_json::Value::Array(vec![service]),
+            );
         }
     }
     value
@@ -150,21 +155,18 @@ fn save_projects(app: AppHandle, projects: Vec<ProjectConfig>) -> Result<(), Str
     fs::write(&path, data).map_err(|e| e.to_string())
 }
 
+// El punto de corriendo/detenido de un servicio se decide por su id (y el
+// PID que le corresponde en el registro), nunca por el puerto que diga su
+// configuración: dos servicios de proyectos distintos pueden declarar el
+// mismo número de puerto sin estar corriendo los dos a la vez, y chequear
+// por puerto (con lsof, como hace kill_port) los mostraba erróneamente a
+// ambos como activos. El puerto solo se usa para matar (kill_port), nunca
+// para saber si ESTE id en particular sigue vivo.
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-// Indica si algo está escuchando en el puerto, sin matar nada. Se usa para
-// pintar el indicador de corriendo/detenido de cada servicio.
-#[tauri::command]
-fn is_port_in_use(port: u16) -> Result<bool, String> {
-    let output = Command::new("zsh")
-        .arg("-c")
-        .arg(format!("lsof -ti :{} -sTCP:LISTEN", port))
-        .output()
-        .map_err(|e| e.to_string())?;
-    Ok(!output.stdout.is_empty())
+fn is_process_alive(id: String, app: AppHandle) -> Result<bool, String> {
+    let registry = app.state::<ProcessRegistry>();
+    let guard = registry.lock().map_err(|e| e.to_string())?;
+    Ok(guard.contains_key(&id))
 }
 
 // Mata por PID un proceso lanzado por run_project_command, buscándolo en el
@@ -252,7 +254,12 @@ fn run_project_command(
             for line in BufReader::new(stdout).lines().flatten() {
                 let _ = app_handle.emit(
                     "project-log",
-                    ProcessOutput { id: id_clone.clone(), stream: "stdout".into(), line, code: None },
+                    ProcessOutput {
+                        id: id_clone.clone(),
+                        stream: "stdout".into(),
+                        line,
+                        code: None,
+                    },
                 );
             }
         });
@@ -265,7 +272,12 @@ fn run_project_command(
             for line in BufReader::new(stderr).lines().flatten() {
                 let _ = app_handle.emit(
                     "project-log",
-                    ProcessOutput { id: id_clone.clone(), stream: "stderr".into(), line, code: None },
+                    ProcessOutput {
+                        id: id_clone.clone(),
+                        stream: "stderr".into(),
+                        line,
+                        code: None,
+                    },
                 );
             }
         });
@@ -302,11 +314,14 @@ struct TrayServiceInfo {
 
 // Reconstruye el menú del ícono de bandeja con la lista de servicios y su
 // estado actual (● corriendo / ○ detenido). El frontend es dueño de esa
-// información (proyectos + polling de puertos), así que la empuja cada vez
-// que cambia en vez de que Rust intente rastrearla por su cuenta.
+// información (proyectos + estado por id, ver runningServices en App.tsx),
+// así que la empuja cada vez que cambia en vez de que Rust intente
+// rastrearla por su cuenta.
 #[tauri::command]
 fn update_tray_menu(app: AppHandle, services: Vec<TrayServiceInfo>) -> Result<(), String> {
-    let tray = app.tray_by_id(TRAY_ID).ok_or("No se encontró el ícono de bandeja")?;
+    let tray = app
+        .tray_by_id(TRAY_ID)
+        .ok_or("No se encontró el ícono de bandeja")?;
 
     let show_item = MenuItemBuilder::with_id("show-window", "Mostrar ventana")
         .build(&app)
@@ -326,9 +341,12 @@ fn update_tray_menu(app: AppHandle, services: Vec<TrayServiceInfo>) -> Result<()
     } else {
         for service in &services {
             let dot = if service.running { "●" } else { "○" };
-            let item = MenuItemBuilder::with_id(format!("svc:{}", service.id), format!("{} {}", dot, service.label))
-                .build(&app)
-                .map_err(|e| e.to_string())?;
+            let item = MenuItemBuilder::with_id(
+                format!("svc:{}", service.id),
+                format!("{} {}", dot, service.label),
+            )
+            .build(&app)
+            .map_err(|e| e.to_string())?;
             items.push(Box::new(item));
         }
     }
@@ -348,6 +366,93 @@ fn update_tray_menu(app: AppHandle, services: Vec<TrayServiceInfo>) -> Result<()
         .map_err(|e| e.to_string())?;
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[derive(Clone, serde::Serialize)]
+struct EnvToolStatus {
+    name: String,
+    installed: bool,
+    version: Option<String>,
+}
+
+// Corre el comando de versión de una herramienta en un shell de login (así
+// respeta .zshrc/.bash_profile, igual que run_project_command) y devuelve
+// su primera línea de salida como "versión". Si el comando no existe, el
+// shell devuelve código de salida distinto de cero (típicamente 127) y se
+// reporta como no instalada en vez de fallar.
+fn detect_tool(name: &str, version_command: &str) -> EnvToolStatus {
+    let full_command = format!(
+        "source ~/.zshrc 2>/dev/null || source ~/.bash_profile 2>/dev/null; {} 2>&1",
+        version_command
+    );
+    let output = Command::new("zsh")
+        .arg("-l")
+        .arg("-c")
+        .arg(&full_command)
+        .output();
+
+    let version = match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty()),
+        _ => None,
+    };
+
+    EnvToolStatus {
+        name: name.to_string(),
+        installed: version.is_some(),
+        version,
+    }
+}
+
+// Chequea el entorno de desarrollo local (Java, Rust, Go, Node, nvm) y su
+// versión. Se pensó para llamarse cada vez que el usuario entra a la vista
+// de "Entorno", no solo al arrancar la app, así detecta algo que se
+// instaló recién sin tener que reiniciarla.
+//
+// Cada chequeo abre su propio shell de login (para respetar .zshrc), y eso
+// no es instantáneo; correrlos uno tras otro sumaba las 5 esperas. Se
+// lanzan en threads separados y se espera a que terminen todos, así el
+// total es más o menos el del más lento, no la suma de los cinco.
+// `async fn` + `spawn_blocking` (no `thread::spawn` + `.join()` síncrono):
+// un comando síncrono que bloquea esperando threads ocupa el hilo que
+// Tauri usa para atenderlo hasta que termina, lo que puede trabar la
+// ventana justo cuando se la necesita responsiva (entrar a la vista y
+// mostrar las cards en "consultando"). Como `async fn`, Tauri lo corre en
+// el runtime async y nunca bloquea nada mientras espera.
+#[tauri::command]
+async fn check_environment() -> Vec<EnvToolStatus> {
+    let checks: [(&str, &str); 12] = [
+        ("Java", "java -version"),
+        ("Kotlin", "kotlinc -version"),
+        ("Rust", "rustc --version"),
+        ("Go", "go version"),
+        ("Node", "node --version"),
+        ("nvm", "nvm --version"),
+        ("pnpm", "pnpm --version"),
+        ("Yarn", "yarn --version"),
+        ("npm", "npm --version"),
+        ("bun", "bun --version"),
+        ("Python", "python --version"),
+        ("Python3", "python3 --version")
+    ];
+
+    let tasks: Vec<_> = checks
+        .into_iter()
+        .map(|(name, command)| {
+            tauri::async_runtime::spawn_blocking(move || detect_tool(name, command))
+        })
+        .collect();
+
+    let mut results = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        if let Ok(status) = task.await {
+            results.push(status);
+        }
+    }
+    results
 }
 
 // Abre la URL local en el navegador por defecto
@@ -373,9 +478,12 @@ pub fn run() {
             // tener que abrir la ventana completa. El menú arranca vacío
             // (solo Mostrar ventana / Salir); el frontend lo puebla con los
             // servicios reales apenas carga, vía update_tray_menu.
-            let show_item = MenuItemBuilder::with_id("show-window", "Mostrar ventana").build(app)?;
+            let show_item =
+                MenuItemBuilder::with_id("show-window", "Mostrar ventana").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&show_item, &quit_item]).build()?;
+            let menu = MenuBuilder::new(app)
+                .items(&[&show_item, &quit_item])
+                .build()?;
 
             // Si por lo que sea no hay ícono default (no debería pasar, dado
             // que tauri.conf.json declara uno), se salta la bandeja en vez
@@ -412,15 +520,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             kill_port,
             kill_process,
-            is_port_in_use,
+            is_process_alive,
             run_project_command,
             open_browser_url,
             load_projects,
             save_projects,
-            update_tray_menu
+            update_tray_menu,
+            check_environment
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
